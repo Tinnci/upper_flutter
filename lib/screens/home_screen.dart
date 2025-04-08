@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
-import 'database_viewer_screen.dart'; // 导入数据库查看屏幕
+// import 'database_viewer_screen.dart'; // No longer used directly here
+import 'db_management_screen.dart'; // Import the new screen
+import 'settings_screen.dart'; // Import the new screen
 import '../widgets/charts_widget.dart'; // 导入 SingleChartCard
 import 'package:fl_chart/fl_chart.dart'; // 需要 FlSpot
 import '../models/sensor_data.dart'; // 需要 SensorData
@@ -57,20 +59,45 @@ class _HomeScreenState extends State<HomeScreen> {
             centerTitle: centerTitle, // Dynamically set centerTitle
             backgroundColor: Theme.of(context).colorScheme.inversePrimary,
             actions: [
-              // 状态指示器
+              // Status Indicator
               Padding(
-                padding: const EdgeInsets.only(right: 16.0),
+                padding: const EdgeInsets.only(right: 8.0), // Adjust padding
                 child: Row(
+                  mainAxisSize: MainAxisSize.min, // Prevent Row from taking too much space
                   children: [
                     Icon(
                       appState.isConnected ? Icons.wifi : Icons.wifi_off,
                       color: appState.isConnected ? Colors.green : Colors.red,
+                      size: 20, // Slightly smaller icon
                     ),
-                    const SizedBox(width: 8),
-                    Text(appState.statusMessage),
+                    const SizedBox(width: 4),
+                    Text(appState.statusMessage, style: Theme.of(context).textTheme.bodySmall), // Smaller text
                   ],
                 ),
               ),
+              // DB Management Button
+              IconButton(
+                icon: const Icon(Icons.storage),
+                tooltip: '数据库管理',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const DbManagementScreen()),
+                  );
+                },
+              ),
+              // Settings Button
+              IconButton(
+                icon: const Icon(Icons.settings),
+                tooltip: '设置',
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const SettingsScreen()),
+                  );
+                },
+              ),
+              const SizedBox(width: 8), // Add some trailing space
             ],
           ),
           body: Padding(
@@ -175,16 +202,7 @@ class _HomeScreenState extends State<HomeScreen> {
           runSpacing: 16.0,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
-            ElevatedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => const DatabaseViewerScreen()),
-                );
-              },
-              icon: const Icon(Icons.storage),
-              label: const Text('查看数据库'),
-            ),
+            // Removed the "查看数据库" button from here, moved to AppBar actions
             ElevatedButton.icon(
               onPressed: () async {
                 final confirm = await showDialog<bool>(

@@ -162,18 +162,18 @@ class AppState extends ChangeNotifier {
         _consecutiveReadFailures = 0; // 读取成功，重置计数器
         notifyListeners(); // 更新实时数据 UI
       } catch (e) {
-         // print("处理接收到的数据时出错: $e"); // Use logger in production
+         debugPrint ("处理接收到的数据时出错: $e"); // Use logger in production
          _updateStatus("数据处理错误");
          // 数据处理错误不计入连接失败
       }
     } else {
       // 读取数据失败 (readData 返回 null)
       _consecutiveReadFailures++;
-      // print("未能获取到数据 (失败次数: $_consecutiveReadFailures/$_maxReadFailures)"); // Use logger
+      debugPrint ("未能获取到数据 (失败次数: $_consecutiveReadFailures/$_maxReadFailures)"); // Use logger
       _updateStatus("数据读取失败 ($_consecutiveReadFailures/$_maxReadFailures)"); // 更新状态显示失败次数
 
       if (_consecutiveReadFailures >= _maxReadFailures) {
-        // print("连续读取失败次数达到上限，断开连接..."); // Use logger
+        debugPrint ("连续读取失败次数达到上限，断开连接..."); // Use logger
         _updateStatus("连接丢失，正在断开...");
         await _disconnect(); // 达到阈值，执行断开逻辑
       }
@@ -189,7 +189,7 @@ class AppState extends ChangeNotifier {
           _chartDataBuffer = initialData.reversed.toList();
           notifyListeners(); // 通知图表更新
       } catch (e) {
-          // print("加载图表数据时出错: $e"); // Use logger
+          debugPrint ("加载图表数据时出错: $e"); // Use logger
           _updateStatus("加载图表数据失败");
       }
   }
@@ -222,7 +222,7 @@ class AppState extends ChangeNotifier {
         _updateStatus("未找到设备");
       }
     } catch (e) {
-       // print("扫描设备时出错: $e"); // Use logger
+       debugPrint ("扫描设备时出错: $e"); // Use logger
        _updateStatus("扫描出错");
     } finally {
         _isScanning = false;

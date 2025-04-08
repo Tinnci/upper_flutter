@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:network_info_plus/network_info_plus.dart';
 // import '../models/sensor_data.dart'; // 导入数据模型 (Unused)
 
@@ -30,10 +31,10 @@ class CommunicationService {
     // _port = port; // Unused
 
     try {
-      // print("正在连接到 $host:$port..."); // Use logger
+      debugPrint ("正在连接到 $host:$port..."); // Use logger
       _socket = await Socket.connect(host, port, timeout: _timeout);
       _isConnected = true;
-      // print("连接成功！"); // Use logger
+      debugPrint ("连接成功！"); // Use logger
 
       // 设置数据流转发
       _socketSubscription = _socket!.listen(
@@ -42,11 +43,11 @@ class CommunicationService {
           _dataStreamController.add(data);
         },
         onError: (error) {
-          // print("Socket 错误: $error"); // Use logger
+          debugPrint ("Socket 错误: $error"); // Use logger
           disconnect(); // 出错时断开连接
         },
         onDone: () {
-          // print("Socket 连接已关闭"); // Use logger
+          debugPrint ("Socket 连接已关闭"); // Use logger
           disconnect(); // 完成时断开连接
         },
         cancelOnError: false, // 不要在错误时取消，让我们的错误处理来处理
@@ -55,7 +56,7 @@ class CommunicationService {
       return true;
       // return true; // Dead code, already returned on line 55
     } on SocketException catch (e) {
-      // print("WiFi 连接失败 (尝试 ${retries + 1}/$maxRetries): ${e.message} (OS Error: ${e.osError?.message}, Code: ${e.osError?.errorCode})"); // Use logger
+       debugPrint("WiFi 连接失败 (尝试 ${retries + 1}/$maxRetries): ${e.message} (OS Error: ${e.osError?.message}, Code: ${e.osError?.errorCode})"); // Use logger
       // 清理资源
       _isConnected = false;
       _socket?.destroy();
@@ -65,14 +66,14 @@ class CommunicationService {
 
       retries++;
       if (retries < maxRetries) {
-        // print("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
+        debugPrint ("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
         await Future.delayed(retryDelay);
       } else {
-        // print("连接重试次数已达上限，连接失败。"); // Use logger
+        debugPrint ("连接重试次数已达上限，连接失败。"); // Use logger
         return false; // 重试次数用尽，返回失败
       }
     } catch (e) {
-      // print("WiFi 连接时发生未知错误 (尝试 ${retries + 1}/$maxRetries): $e"); // Use logger
+      debugPrint ("WiFi 连接时发生未知错误 (尝试 ${retries + 1}/$maxRetries): $e"); // Use logger
        // 清理资源
       _isConnected = false;
       _socket?.destroy();
@@ -82,10 +83,10 @@ class CommunicationService {
 
       retries++;
       if (retries < maxRetries) {
-         // print("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
+         debugPrint ("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
          await Future.delayed(retryDelay);
       } else {
-         // print("连接重试次数已达上限，连接失败。"); // Use logger
+         debugPrint ("连接重试次数已达上限，连接失败。"); // Use logger
          return false; // 重试次数用尽，返回失败
       }
     }
@@ -95,7 +96,7 @@ class CommunicationService {
 
   // 断开连接
   Future<void> disconnect() async {
-    // print("正在断开连接..."); // Use logger
+    debugPrint ("正在断开连接..."); // Use logger
 
     // 取消流订阅
     if (_socketSubscription != null) {
@@ -107,48 +108,48 @@ class CommunicationService {
       try {
         await _socket!.close(); // 等待关闭完成
       } catch (e) {
-        // print("关闭 Socket 时出错: $e"); // Use logger
+        debugPrint ("关闭 Socket 时出错: $e"); // Use logger
       } finally {
          try {
            _socket?.destroy(); // 使用可空调用，确保销毁
          } catch (e) {
-           // print("销毁 Socket 时出错: $e"); // Use logger
+           debugPrint ("销毁 Socket 时出错: $e"); // Use logger
          }
          _socket = null;
       }
     }
 
     _isConnected = false; // 无论如何都确保状态正确
-    // print("连接已断开"); // Use logger
+    debugPrint ("连接已断开"); // Use logger
   }
 
   // 读取传感器数据
   Future<Map<String, dynamic>?> readData() async {
     if (!_isConnected || _socket == null) {
-      // print("未连接到设备，无法读取数据"); // Use logger
+      debugPrint ("未连接到设备，无法读取数据"); // Use logger
       return null;
     }
 
     try {
-      // print("发送命令: GET_CURRENT"); // Use logger
+      debugPrint ("发送命令: GET_CURRENT"); // Use logger
       _socket!.writeln("GET_CURRENT"); // 使用 writeln 自动添加换行符
       await _socket!.flush(); // 确保数据已发送
 
-      // print("等待设备响应..."); // Use logger
+      debugPrint ("等待设备响应..."); // Use logger
 
       // 使用广播流接收数据，避免监听问题
       try {
         // 等待最多 _timeout 时间来接收数据
         final List<int> rawData = await _dataStreamController.stream.first.timeout(_timeout);
         final response = utf8.decode(rawData).trim();
-        // print("收到响应: $response"); // Use logger
+        debugPrint ("收到响应: $response"); // Use logger
 
         // 尝试解析 JSON
         try {
           // ESP8266 可能一次发送多行，或者不完整的 JSON
           // 简单的实现：假设一次接收到完整的 JSON
           final jsonData = jsonDecode(response) as Map<String, dynamic>;
-          // print("成功解析JSON数据: $jsonData"); // Use logger
+          debugPrint ("成功解析JSON数据: $jsonData"); // Use logger
           // 转换为期望的 Map 格式 (与 Python 版本一致)
           final result = {
             'noise_db': (jsonData['decibels'] as num?)?.toDouble() ?? 0.0,
@@ -156,31 +157,31 @@ class CommunicationService {
             'humidity': (jsonData['humidity'] as num?)?.toDouble() ?? 0.0,
             'light_intensity': (jsonData['lux'] as num?)?.toDouble() ?? 0.0,
           };
-          // print("转换后的数据: $result"); // Use logger
+          debugPrint ("转换后的数据: $result"); // Use logger
           return result;
         } catch (e) {
-          // print("解析 JSON 失败: $e, 响应: $response"); // Use logger
+          debugPrint ("解析 JSON 失败: $e, 响应: $response"); // Use logger
           return null; // 解析失败返回 null
         }
       } on TimeoutException {
-        // print("读取数据超时"); // Use logger
+        debugPrint ("读取数据超时"); // Use logger
         return null;
       } on SocketException catch (e) {
-        // print("读取数据时发生 Socket 错误: ${e.message}. 连接可能已断开."); // Use logger
+        debugPrint ("读取数据时发生 Socket 错误: ${e.message}. 连接可能已断开."); // Use logger
         await disconnect(); // Socket 错误通常意味着连接问题，断开
         return null;
       } catch (e) {
-        // print("读取数据流时发生未知错误: $e"); // Use logger
+        debugPrint ("读取数据流时发生未知错误: $e"); // Use logger
         // 其他流错误也可能意味着连接问题
         await disconnect();
         return null;
       }
     } on SocketException catch (e) {
-      // print("发送命令或刷新 Socket 时发生错误: ${e.message}. 连接可能已断开."); // Use logger
+      debugPrint ("发送命令或刷新 Socket 时发生错误: ${e.message}. 连接可能已断开."); // Use logger
       await disconnect(); // Socket 错误通常意味着连接问题，断开
       return null;
     } catch (e) {
-      // print("WiFi 读取数据时发生未知错误: $e"); // Use logger
+      debugPrint ("WiFi 读取数据时发生未知错误: $e"); // Use logger
       // 其他未知错误也可能需要断开
       await disconnect();
       return null;
@@ -193,18 +194,18 @@ class CommunicationService {
       final info = NetworkInfo();
       final wifiIP = await info.getWifiIP(); // 获取 WiFi IP
       if (wifiIP != null) {
-        // print("当前本机 WiFi IP: $wifiIP"); // Use logger
+        debugPrint ("当前本机 WiFi IP: $wifiIP"); // Use logger
         final parts = wifiIP.split('.');
         if (parts.length == 4) {
           final prefix = "${parts[0]}.${parts[1]}.${parts[2]}.";
-          // print("使用网络前缀: $prefix"); // Use logger
+          debugPrint ("使用网络前缀: $prefix"); // Use logger
           return prefix;
         }
       }
-      // print("无法获取有效的 WiFi IP 地址"); // Use logger
+      debugPrint ("无法获取有效的 WiFi IP 地址"); // Use logger
       return null; // 或者返回默认值 "192.168.1."
     } catch (e) {
-      // print("获取网络前缀出错: $e"); // Use logger
+      debugPrint ("获取网络前缀出错: $e"); // Use logger
       return null; // 或者返回默认值
     }
   }
@@ -215,10 +216,10 @@ class CommunicationService {
   // 这里提供一个简化的思路，但不保证能在所有平台工作或找到所有设备。
   Future<List<String>> scanNetworkDevices(String networkPrefix, {int port = 8266, Duration scanTimeoutPerIp = const Duration(milliseconds: 500)}) async {
       if (networkPrefix.isEmpty) {
-          // print("网络前缀为空，无法扫描"); // Use logger
+          debugPrint ("网络前缀为空，无法扫描"); // Use logger
           return [];
       }
-      // print("开始扫描网络，前缀: $networkPrefix, 端口: $port"); // Use logger
+      debugPrint ("开始扫描网络，前缀: $networkPrefix, 端口: $port"); // Use logger
       final devices = <String>[];
       final futures = <Future>[];
 
@@ -227,7 +228,7 @@ class CommunicationService {
           futures.add(
               Socket.connect(ip, port, timeout: scanTimeoutPerIp)
                   .then((socket) {
-                      // print("发现可连接设备: $ip"); // Use logger
+                      debugPrint ("发现可连接设备: $ip"); // Use logger
                       // 可以尝试发送一个简单的命令验证是否是目标设备
                       // socket.writeln("PING"); // 假设设备会响应 PONG
                       // await socket.flush();
@@ -237,7 +238,7 @@ class CommunicationService {
                   })
                   .catchError((e) {
                       // 连接失败是正常的，忽略错误
-                      // // print("测试 $ip 失败: $e"); // Already commented
+                      // debugPrint ("测试 $ip 失败: $e"); // Already commented
                   })
           );
       }
@@ -245,7 +246,7 @@ class CommunicationService {
       // 等待所有连接尝试完成
       await Future.wait(futures);
 
-      // print("扫描完成，找到 ${devices.length} 个潜在设备: $devices"); // Use logger
+      debugPrint ("扫描完成，找到 ${devices.length} 个潜在设备: $devices"); // Use logger
       return devices;
   }
 

@@ -8,30 +8,48 @@ import '../providers/app_state.dart';
 // import 'dart:io'; // For file operations
 // import 'package:share_plus/share_plus.dart'; // For sharing file
 
-class DatabaseViewerScreen extends StatefulWidget {
-  const DatabaseViewerScreen({super.key});
+// Renamed from DatabaseViewerScreen
+class DbManagementScreen extends StatefulWidget {
+  const DbManagementScreen({super.key});
 
   @override
-  State<DatabaseViewerScreen> createState() => _DatabaseViewerScreenState();
+  // Renamed from _DatabaseViewerScreenState
+  State<DbManagementScreen> createState() => _DbManagementScreenState();
 }
 
-class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
+// Renamed from _DatabaseViewerScreenState
+class _DbManagementScreenState extends State<DbManagementScreen> {
   List<SensorData> _data = [];
   bool _isLoading = false;
   final TextEditingController _startDateController = TextEditingController();
   final TextEditingController _endDateController = TextEditingController();
   final DateFormat _dateFormat = DateFormat("yyyy-MM-dd HH:mm:ss");
+  // Controller for delete days input (will be added later if needed)
+  final TextEditingController _daysController = TextEditingController(text: "7");
+
+  bool _initialLoadDone = false; // Flag to ensure load only happens once initially
 
   @override
   void initState() {
     super.initState();
-    _loadData(); // 初始加载所有数据
+    // Don't call _loadData here as context might not be ready
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Load data here, ensuring it only runs once initially
+    if (!_initialLoadDone) {
+      _loadData();
+      _initialLoadDone = true;
+    }
   }
 
   @override
   void dispose() {
     _startDateController.dispose();
     _endDateController.dispose();
+    _daysController.dispose(); // Dispose the controller
     super.dispose();
   }
 
@@ -39,25 +57,31 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
     setState(() {
       _isLoading = true;
     });
+    // Use context before async gap
     final appState = Provider.of<AppState>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+
     try {
       if (startDate != null || endDate != null) {
         _data = await appState.searchDbReadings(startDate: startDate, endDate: endDate);
       } else {
-        // 默认加载最新的 1000 条记录
+        // Default load latest 1000 records
         _data = await appState.getAllDbReadings(limit: 1000);
       }
     } catch (e) {
-      // print("加载数据库数据时出错: $e"); // Use logger
+      // print("Error loading database data: $e"); // Use logger (Corrected from debugPrint)
       // Check if the widget is still mounted before showing SnackBar
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
+      scaffoldMessenger.showSnackBar(
         const SnackBar(content: Text('加载数据失败')),
       );
     } finally {
-      setState(() {
-        _isLoading = false;
-      });
+       // Ensure setState is called only if mounted
+       if (mounted) {
+         setState(() {
+           _isLoading = false;
+         });
+       }
     }
   }
 
@@ -69,9 +93,13 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
       lastDate: DateTime(2101),
     );
     if (pickedDate != null) {
+      // Use context before async gap
+      final initialTime = TimeOfDay.now();
+      // Check mounted after async gap
+      if (!mounted) return;
       final TimeOfDay? pickedTime = await showTimePicker(
         context: context,
-        initialTime: TimeOfDay.now(),
+        initialTime: initialTime,
       );
       if (pickedTime != null) {
         final DateTime combined = DateTime(
@@ -81,44 +109,85 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
           pickedTime.hour,
           pickedTime.minute,
         );
-        // 使用秒为 00
+        // Use seconds as 00
         final finalDateTime = DateTime(combined.year, combined.month, combined.day, combined.hour, combined.minute, 0);
         controller.text = _dateFormat.format(finalDateTime);
       }
     }
   }
 
-  // TODO: 实现导出 CSV 功能
+  // TODO: Implement CSV export functionality
   Future<void> _exportCsv() async {
      // Check if the widget is still mounted before showing SnackBar
      if (!mounted) return;
      ScaffoldMessenger.of(context).showSnackBar(
        const SnackBar(content: Text('导出 CSV 功能待实现')),
      );
-    // 1. 获取数据 (_data)
-    // 2. 转换为 CSV 格式 (使用 csv 包)
-    //    List<List<dynamic>> rows = [];
-    //    rows.add(["ID", "时间戳", "噪声(dB)", "温度(°C)", "湿度(%)", "光照(lux)"]); // Header
-    //    for (var item in _data) {
-    //      rows.add([
-    //        item.id,
-    //        _dateFormat.format(item.timestamp),
-    //        item.noiseDb,
-    //        item.temperature,
-    //        item.humidity,
-    //        item.lightIntensity,
-    //      ]);
-    //    }
-    //    String csvString = const ListToCsvConverter().convert(rows);
-    // 3. 获取文件保存路径 (path_provider)
-    //    final directory = await getTemporaryDirectory(); // 或者 getApplicationDocumentsDirectory
-    //    final path = '${directory.path}/sensor_data_${DateTime.now().millisecondsSinceEpoch}.csv';
-    // 4. 写入文件 (dart:io)
-    //    final file = File(path);
-    //    await file.writeAsString(csvString);
-    // 5. 分享文件 (share_plus)
-    //    await Share.shareXFiles([XFile(path)], text: '传感器数据');
-    // 6. 显示成功/失败消息
+    // ... (CSV export logic remains commented out)
+  }
+
+  // --- Database Management Actions ---
+
+  Future<void> _clearAllData() async {
+    final appState = Provider.of<AppState>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除'),
+        content: const Text('确定要删除所有数据吗？此操作不可恢复！'),
+        actions: [
+          TextButton(onPressed: () => navigator.pop(false), child: const Text('取消')),
+          TextButton(onPressed: () => navigator.pop(true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await appState.clearAllDbData();
+      // Check mounted after async gap
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(content: Text('所有数据已删除')),
+      );
+      _loadData(); // Reload data after clearing
+    }
+  }
+
+  Future<void> _deleteOldData() async {
+    final appState = Provider.of<AppState>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    final days = int.tryParse(_daysController.text);
+    if (days == null || days <= 0) {
+      scaffoldMessenger.showSnackBar(
+        const SnackBar(content: Text('请输入有效的天数')),
+      );
+      return;
+    }
+
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('确认删除'),
+        content: Text('确定要删除 $days 天前的数据吗？此操作不可恢复！'),
+        actions: [
+          TextButton(onPressed: () => navigator.pop(false), child: const Text('取消')),
+          TextButton(onPressed: () => navigator.pop(true), child: const Text('删除')),
+        ],
+      ),
+    );
+    if (confirm == true) {
+      await appState.deleteDbDataBefore(days);
+      // Check mounted after async gap
+      if (!mounted) return;
+      scaffoldMessenger.showSnackBar(
+        SnackBar(content: Text('$days 天前的数据已删除')),
+      );
+       _loadData(); // Reload data after deleting
+    }
   }
 
 
@@ -126,7 +195,7 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('数据库记录查看器'),
+        title: const Text('数据库管理'), // Updated title
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -143,6 +212,7 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
       body: Column(
         children: [
           _buildFilterSection(context),
+          _buildManagementSection(context), // Add management buttons section
           const Divider(),
           Expanded(
             child: _isLoading
@@ -176,7 +246,7 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
                   onPressed: () => _selectDateTime(context, _startDateController),
                 ),
               ),
-              readOnly: true, // 防止手动输入
+              readOnly: true,
             ),
           ),
           SizedBox(
@@ -207,24 +277,61 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
              onPressed: _isLoading ? null : () {
                _startDateController.clear();
                _endDateController.clear();
-               _loadData(); // 清除条件后加载所有数据
+               _loadData(); // Load default (latest 1000) after clearing
              },
              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
-             child: const Text('清除条件'), // Move child to the end
+             child: const Text('清除条件'),
            ),
         ],
       ),
     );
   }
 
+  // New section for management buttons
+  Widget _buildManagementSection(BuildContext context) {
+     return Padding(
+       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+       child: Wrap(
+         spacing: 8.0,
+         runSpacing: 8.0,
+         crossAxisAlignment: WrapCrossAlignment.center,
+         children: [
+            ElevatedButton.icon(
+              onPressed: _isLoading ? null : _clearAllData,
+              icon: const Icon(Icons.delete_forever),
+              label: const Text('删除所有数据'),
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+            ),
+            const Text("删除"),
+             SizedBox(
+               width: 60,
+               child: TextField(
+                 controller: _daysController,
+                 decoration: const InputDecoration(
+                   hintText: '天数',
+                 ),
+                 keyboardType: TextInputType.number,
+               ),
+             ),
+            const Text("天前的数据"),
+            ElevatedButton(
+              onPressed: _isLoading ? null : _deleteOldData,
+              child: const Text('执行删除'),
+            ),
+         ],
+       ),
+     );
+  }
+
+
   Widget _buildDataTable() {
-    // 对于大量数据，DataTable 可能性能不佳，可以考虑 PaginatedDataTable 或 ListView.builder
-    return SingleChildScrollView( // 添加滚动
+    // Consider PaginatedDataTable for large datasets
+    return SingleChildScrollView(
        scrollDirection: Axis.vertical,
        child: SingleChildScrollView(
          scrollDirection: Axis.horizontal,
          child: DataTable(
-           columnSpacing: 15.0, // 调整列间距
+           columnSpacing: 15.0,
            columns: const [
              DataColumn(label: Text('ID')),
              DataColumn(label: Text('时间戳')),

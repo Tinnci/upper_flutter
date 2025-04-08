@@ -1,3 +1,4 @@
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -32,35 +33,69 @@ void main() {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  // Define default ColorScheme as fallback
+  static final _defaultLightColorScheme = ColorScheme.fromSeed(seedColor: Colors.blueAccent);
+  static final _defaultDarkColorScheme = ColorScheme.fromSeed(seedColor: Colors.blueAccent, brightness: Brightness.dark);
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '环境监测上位机', // 设置应用标题
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueAccent), // 调整主题颜色
-        useMaterial3: true, // 启用 Material 3
-        // 可以进一步自定义主题
-        textTheme: const TextTheme(
-           bodyMedium: TextStyle(fontSize: 14.0), // 调整默认字体大小
-        ),
-        inputDecorationTheme: InputDecorationTheme( // 统一输入框样式
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(8.0),
-          ),
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
-        ),
-        elevatedButtonTheme: ElevatedButtonThemeData( // 统一按钮样式
-          style: ElevatedButton.styleFrom(
-            padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8.0),
+    // Wrap MaterialApp with DynamicColorBuilder
+    return DynamicColorBuilder(
+      builder: (ColorScheme? lightDynamic, ColorScheme? darkDynamic) {
+        // Use dynamic colors if available, otherwise use defaults
+        ColorScheme lightColorScheme = lightDynamic ?? _defaultLightColorScheme;
+        ColorScheme darkColorScheme = darkDynamic ?? _defaultDarkColorScheme;
+
+        return MaterialApp(
+          title: '环境监测上位机',
+          theme: ThemeData(
+            colorScheme: lightColorScheme,
+            useMaterial3: true,
+            // Keep other theme customizations
+             textTheme: const TextTheme(
+               bodyMedium: TextStyle(fontSize: 14.0),
             ),
+            inputDecorationTheme: InputDecorationTheme(
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8.0),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+            ),
+             elevatedButtonTheme: ElevatedButtonThemeData(
+               style: ElevatedButton.styleFrom(
+                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                 shape: RoundedRectangleBorder(
+                   borderRadius: BorderRadius.circular(8.0),
+                 ),
+               ),
+             ),
           ),
-        ),
-      ),
-      // 应用的初始路由指向 HomeScreen
-      home: const HomeScreen(),
-      debugShowCheckedModeBanner: false, // 移除右上角的 Debug 标志
+          darkTheme: ThemeData( // Add dark theme support
+            colorScheme: darkColorScheme,
+            useMaterial3: true,
+             textTheme: const TextTheme(
+               bodyMedium: TextStyle(fontSize: 14.0),
+            ),
+            inputDecorationTheme: InputDecorationTheme(
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(8.0),
+              ),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
+            ),
+             elevatedButtonTheme: ElevatedButtonThemeData(
+               style: ElevatedButton.styleFrom(
+                 padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+                 shape: RoundedRectangleBorder(
+                   borderRadius: BorderRadius.circular(8.0),
+                 ),
+               ),
+             ),
+          ),
+          // themeMode: ThemeMode.system, // Optional: follow system theme
+          home: const HomeScreen(),
+          debugShowCheckedModeBanner: false,
+        );
+      },
     );
   }
 }

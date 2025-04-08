@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
@@ -33,7 +34,7 @@ class DatabaseHelper {
   _initDatabase() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     final path = join(documentsDirectory.path, _databaseName);
-    // print("数据库路径: $path"); // Use logger
+    debugPrint ("数据库路径: $path"); // Use logger
     return await openDatabase(path,
         version: _databaseVersion,
         onCreate: _onCreate);
@@ -51,7 +52,7 @@ class DatabaseHelper {
             $columnLightIntensity REAL
           )
           ''');
-    // print("数据库表 '$table' 已创建"); // Use logger
+    debugPrint ("数据库表 '$table' 已创建"); // Use logger
   }
 
   // --- CRUD 操作 ---

@@ -43,7 +43,7 @@ dependencies:
   wifi_scan: ^0.4.0 # For scanning WiFi networks (Android/iOS only)
   intl: ^0.19.0 # For date formatting
   path: ^1.9.0 # For joining paths (needed by database_helper)
-
+  dynamic_color: any # For Material You dynamic theming (Downgraded as per pub get suggestion)
 dev_dependencies:
   flutter_test:
     sdk: flutter
