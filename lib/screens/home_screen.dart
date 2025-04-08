@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../providers/app_state.dart';
 import 'database_viewer_screen.dart'; // 导入数据库查看屏幕
-import '../widgets/charts_widget.dart'; // 导入图表 Widget
+import '../widgets/charts_widget.dart'; // 导入 SingleChartCard
+import 'package:fl_chart/fl_chart.dart'; // 需要 FlSpot
+import '../models/sensor_data.dart'; // 需要 SensorData
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -43,9 +45,16 @@ class _HomeScreenState extends State<HomeScreen> {
     // 使用 Consumer 来监听 AppState 的变化并重建 UI
     return Consumer<AppState>(
       builder: (context, appState, child) {
+        // --- Responsive AppBar Title ---
+        final screenWidth = MediaQuery.of(context).size.width;
+        const double compactWidth = 600; // Material 3 breakpoint for compact
+        final bool centerTitle = screenWidth >= compactWidth;
+        // --- End Responsive AppBar Title ---
+
         return Scaffold(
           appBar: AppBar(
             title: const Text('环境监测上位机'),
+            centerTitle: centerTitle, // Dynamically set centerTitle
             backgroundColor: Theme.of(context).colorScheme.inversePrimary,
             actions: [
               // 状态指示器
@@ -191,6 +200,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 );
                 if (confirm == true) {
                   await appState.clearAllDbData();
+                   // Check if the widget is still mounted before showing SnackBar
+                   if (!mounted) return;
                    ScaffoldMessenger.of(context).showSnackBar(
                      const SnackBar(content: Text('所有数据已删除')),
                    );
@@ -216,6 +227,8 @@ class _HomeScreenState extends State<HomeScreen> {
               onPressed: () async {
                  final days = int.tryParse(_daysController.text);
                  if (days == null || days <= 0) {
+                    // Check if the widget is still mounted before showing SnackBar
+                    if (!mounted) return;
                     ScaffoldMessenger.of(context).showSnackBar(
                       const SnackBar(content: Text('请输入有效的天数')),
                     );
@@ -234,6 +247,8 @@ class _HomeScreenState extends State<HomeScreen> {
                  );
                  if (confirm == true) {
                    await appState.deleteDbDataBefore(days);
+                   // Check if the widget is still mounted before showing SnackBar
+                   if (!mounted) return;
                    ScaffoldMessenger.of(context).showSnackBar(
                      SnackBar(content: Text('$days 天前的数据已删除')),
                    );
@@ -305,23 +320,114 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-   // 构建图表区域
-   Widget _buildChartSection(BuildContext context, AppState appState) {
-     return Card(
-       elevation: 2,
-       child: Padding(
-         padding: const EdgeInsets.all(16.0),
-         child: Column(
-           crossAxisAlignment: CrossAxisAlignment.start,
-           children: [
-             Text('历史数据图表', style: Theme.of(context).textTheme.titleLarge),
-             const SizedBox(height: 12),
-             // 集成图表 Widget
-             ChartsWidget(sensorDataList: appState.latestReadings),
-             // Text('数据点: ${appState.latestReadings.length}'), // 调试用
-           ],
-         ),
-       ),
-     );
-   }
+  // --- 辅助方法：从 SensorData 列表创建 FlSpot 列表 ---
+  // (从之前的 ChartsWidget 移过来)
+  List<FlSpot> _createSpots(List<SensorData> dataList, double Function(SensorData) getY) {
+    if (dataList.isEmpty) return [];
+    return dataList.map((data) {
+      final x = data.timestamp.millisecondsSinceEpoch.toDouble();
+      final y = getY(data);
+      return FlSpot(x, y);
+    }).toList();
+  }
+
+  // 构建图表区域 - 使用 LayoutBuilder 实现自适应布局
+  Widget _buildChartSection(BuildContext context, AppState appState) {
+    final sensorDataList = appState.latestReadings;
+
+    if (sensorDataList.isEmpty) {
+      return Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Column(
+             crossAxisAlignment: CrossAxisAlignment.start,
+             children: [
+               Text('历史数据图表', style: Theme.of(context).textTheme.titleLarge),
+               const SizedBox(height: 12),
+               const SizedBox(height: 200, child: Center(child: Text('暂无图表数据'))), // 占位符
+             ]
+          ),
+        ),
+      );
+    }
+
+    // --- 数据准备 ---
+    final noiseSpots = _createSpots(sensorDataList, (data) => data.noiseDb);
+    final tempSpots = _createSpots(sensorDataList, (data) => data.temperature);
+    final humiditySpots = _createSpots(sensorDataList, (data) => data.humidity);
+    final lightSpots = _createSpots(sensorDataList, (data) => data.lightIntensity);
+
+    // 计算 X 轴范围 (时间戳) - 确保列表不为空
+    final minTimestamp = sensorDataList.first.timestamp.millisecondsSinceEpoch.toDouble();
+    final maxTimestamp = sensorDataList.last.timestamp.millisecondsSinceEpoch.toDouble();
+    // --- 数据准备结束 ---
+
+
+    // --- 定义图表卡片列表 ---
+    final chartCards = [
+      SingleChartCard(title: '噪声 (dB)', spots: noiseSpots, color: Colors.red, minX: minTimestamp, maxX: maxTimestamp),
+      SingleChartCard(title: '温度 (°C)', spots: tempSpots, color: Colors.blue, minX: minTimestamp, maxX: maxTimestamp),
+      SingleChartCard(title: '湿度 (%)', spots: humiditySpots, color: Colors.green, minX: minTimestamp, maxX: maxTimestamp),
+      SingleChartCard(title: '光照 (lux)', spots: lightSpots, color: Colors.orange, minX: minTimestamp, maxX: maxTimestamp),
+    ];
+    // --- 图表卡片列表结束 ---
+
+
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('历史数据图表', style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final screenWidth = constraints.maxWidth;
+
+                // --- Material 3 Breakpoints (近似值) ---
+                const double compactWidth = 600;
+                const double mediumWidth = 840;
+                // --- Breakpoints End ---
+
+                if (screenWidth < compactWidth) {
+                  // Compact: 单列布局 (使用 Column 或 ListView)
+                  return Column(
+                    children: chartCards.map((card) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0), // 添加间距
+                      child: SizedBox(height: 200, child: card), // 固定高度或 AspectRatio
+                    )).toList(),
+                  );
+                } else if (screenWidth < mediumWidth) {
+                  // Medium: 2 列 GridView
+                  return GridView.count(
+                    crossAxisCount: 2,
+                    childAspectRatio: 1.8, // 调整宽高比以适应空间
+                    mainAxisSpacing: 8.0,
+                    crossAxisSpacing: 8.0,
+                    shrinkWrap: true, // 重要：让 GridView 根据内容调整大小
+                    physics: const NeverScrollableScrollPhysics(), // 禁止 GridView 内部滚动
+                    children: chartCards.map((card) => SizedBox(height: 200, child: card)).toList(), // 可以调整高度
+                  );
+                } else {
+                  // Expanded: 4 列 GridView (或根据需要调整为 3 列)
+                  return GridView.count(
+                    crossAxisCount: 4, // 更多列
+                    childAspectRatio: 1.5, // 调整宽高比
+                    mainAxisSpacing: 8.0,
+                    crossAxisSpacing: 8.0,
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    children: chartCards.map((card) => SizedBox(height: 200, child: card)).toList(),
+                  );
+                }
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }

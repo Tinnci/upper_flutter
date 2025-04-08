@@ -45,11 +45,15 @@ class AppState extends ChangeNotifier {
   SensorData? get currentData => _currentData;
 
   // --- 图表数据 ---
-  List<SensorData> _latestReadings = [];
-  List<SensorData> get latestReadings => _latestReadings;
+  // --- 图表数据 ---
+  final int _chartDataBufferSize = 60; // 图表显示的数据点数量
+  List<SensorData> _chartDataBuffer = [];
+  List<SensorData> get latestReadings => _chartDataBuffer; // Getter 直接返回缓冲区
 
   // --- 数据接收定时器 ---
   Timer? _dataFetchTimer;
+  int _consecutiveReadFailures = 0; // 连续读取失败计数器
+  final int _maxReadFailures = 3; // 最大允许连续失败次数
 
   // --- 方法 ---
 
@@ -89,8 +93,9 @@ class AppState extends ChangeNotifier {
     if (success) {
       _isConnected = true;
       _updateStatus("已连接到 $_ipAddress:$_port");
+      _consecutiveReadFailures = 0; // 连接成功，重置失败计数器
       _startDataFetching(); // 开始定时获取数据
-      loadLatestReadingsForChart(); // 加载初始图表数据
+      await loadLatestReadingsForChart(limit: _chartDataBufferSize); // 加载初始图表数据到缓冲区
     } else {
       _isConnected = false;
       _updateStatus("连接失败");
@@ -104,8 +109,9 @@ class AppState extends ChangeNotifier {
     await _commService.disconnect();
     _isConnected = false;
     _currentData = null; // 清空当前数据
-    _latestReadings = []; // 清空图表数据
+    _chartDataBuffer = []; // 清空图表缓冲区
     _updateStatus("已断开连接");
+    _consecutiveReadFailures = 0; // 手动断开，重置失败计数器
     notifyListeners();
   }
 
@@ -145,31 +151,45 @@ class AppState extends ChangeNotifier {
          );
         _currentData = newData;
         await _dbHelper.insertReading(newData); // 存入数据库
-        // 更新图表数据 (可以优化为只添加新数据点)
-        loadLatestReadingsForChart();
+
+        // --- 更新图表缓冲区 ---
+        _chartDataBuffer.add(newData); // 添加新数据到末尾
+        // 如果缓冲区超过大小，移除最旧的数据（列表开头）
+        if (_chartDataBuffer.length > _chartDataBufferSize) {
+          _chartDataBuffer.removeAt(0);
+        }
+        // ----------------------
+        _consecutiveReadFailures = 0; // 读取成功，重置计数器
         notifyListeners(); // 更新实时数据 UI
       } catch (e) {
-         print("处理接收到的数据时出错: $e");
+         // print("处理接收到的数据时出错: $e"); // Use logger in production
          _updateStatus("数据处理错误");
+         // 数据处理错误不计入连接失败
       }
     } else {
-      print("未能获取到数据");
-      // 可以选择在这里更新状态，例如 "数据读取失败"
-      // _updateStatus("数据读取失败");
-      // 如果连续多次失败，可能需要断开连接
-      // await _handleReadFailure();
+      // 读取数据失败 (readData 返回 null)
+      _consecutiveReadFailures++;
+      // print("未能获取到数据 (失败次数: $_consecutiveReadFailures/$_maxReadFailures)"); // Use logger
+      _updateStatus("数据读取失败 ($_consecutiveReadFailures/$_maxReadFailures)"); // 更新状态显示失败次数
+
+      if (_consecutiveReadFailures >= _maxReadFailures) {
+        // print("连续读取失败次数达到上限，断开连接..."); // Use logger
+        _updateStatus("连接丢失，正在断开...");
+        await _disconnect(); // 达到阈值，执行断开逻辑
+      }
     }
   }
 
    // 加载最新的数据用于图表显示
   Future<void> loadLatestReadingsForChart({int limit = 30}) async {
       try {
-          _latestReadings = await _dbHelper.getLatestReadings(limit: limit);
+          // 从数据库加载最新的数据填充缓冲区
+          final initialData = await _dbHelper.getLatestReadings(limit: limit);
           // 数据库返回的是最新的在前，图表需要时间顺序，所以反转
-          _latestReadings = _latestReadings.reversed.toList();
+          _chartDataBuffer = initialData.reversed.toList();
           notifyListeners(); // 通知图表更新
       } catch (e) {
-          print("加载图表数据时出错: $e");
+          // print("加载图表数据时出错: $e"); // Use logger
           _updateStatus("加载图表数据失败");
       }
   }
@@ -202,7 +222,7 @@ class AppState extends ChangeNotifier {
         _updateStatus("未找到设备");
       }
     } catch (e) {
-       print("扫描设备时出错: $e");
+       // print("扫描设备时出错: $e"); // Use logger
        _updateStatus("扫描出错");
     } finally {
         _isScanning = false;
@@ -219,8 +239,9 @@ class AppState extends ChangeNotifier {
   }
 
   // --- 数据库管理方法 ---
-  Future<List<SensorData>> getAllDbReadings() async {
-      return await _dbHelper.getAllReadings();
+  // 添加可选的 limit 参数
+  Future<List<SensorData>> getAllDbReadings({int? limit}) async {
+      return await _dbHelper.getAllReadings(limit: limit); // 将 limit 传递给 DatabaseHelper
   }
 
   Future<List<SensorData>> searchDbReadings({String? startDate, String? endDate}) async {
@@ -230,7 +251,7 @@ class AppState extends ChangeNotifier {
   Future<void> clearAllDbData() async {
       await _dbHelper.clearAllData();
       _currentData = null; // 清空界面显示
-      _latestReadings = [];
+      _chartDataBuffer = [];
       notifyListeners();
       _updateStatus("数据库已清空");
   }
@@ -238,8 +259,8 @@ class AppState extends ChangeNotifier {
   Future<void> deleteDbDataBefore(int days) async {
       await _dbHelper.deleteDataBefore(days);
        _currentData = null; // 可能需要重新加载数据
-       _latestReadings = [];
-       loadLatestReadingsForChart(); // 重新加载图表
+       _chartDataBuffer = [];
+       await loadLatestReadingsForChart(limit: _chartDataBufferSize); // 重新加载图表数据到缓冲区
       notifyListeners();
       _updateStatus("$days 天前的数据已删除");
   }

@@ -44,10 +44,13 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
       if (startDate != null || endDate != null) {
         _data = await appState.searchDbReadings(startDate: startDate, endDate: endDate);
       } else {
-        _data = await appState.getAllDbReadings();
+        // 默认加载最新的 1000 条记录
+        _data = await appState.getAllDbReadings(limit: 1000);
       }
     } catch (e) {
-      print("加载数据库数据时出错: $e");
+      // print("加载数据库数据时出错: $e"); // Use logger
+      // Check if the widget is still mounted before showing SnackBar
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('加载数据失败')),
       );
@@ -87,6 +90,8 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
 
   // TODO: 实现导出 CSV 功能
   Future<void> _exportCsv() async {
+     // Check if the widget is still mounted before showing SnackBar
+     if (!mounted) return;
      ScaffoldMessenger.of(context).showSnackBar(
        const SnackBar(content: Text('导出 CSV 功能待实现')),
      );
@@ -204,8 +209,8 @@ class _DatabaseViewerScreenState extends State<DatabaseViewerScreen> {
                _endDateController.clear();
                _loadData(); // 清除条件后加载所有数据
              },
-             child: const Text('清除条件'),
              style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
+             child: const Text('清除条件'), // Move child to the end
            ),
         ],
       ),

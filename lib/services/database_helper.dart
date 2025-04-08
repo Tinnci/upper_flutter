@@ -33,7 +33,7 @@ class DatabaseHelper {
   _initDatabase() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
     final path = join(documentsDirectory.path, _databaseName);
-    print("数据库路径: $path"); // 打印数据库路径以便调试
+    // print("数据库路径: $path"); // Use logger
     return await openDatabase(path,
         version: _databaseVersion,
         onCreate: _onCreate);
@@ -51,7 +51,7 @@ class DatabaseHelper {
             $columnLightIntensity REAL
           )
           ''');
-    print("数据库表 '$table' 已创建");
+    // print("数据库表 '$table' 已创建"); // Use logger
   }
 
   // --- CRUD 操作 ---
@@ -83,11 +83,12 @@ class DatabaseHelper {
   }
 
   // 获取所有数据
-  Future<List<SensorData>> getAllReadings() async {
+  Future<List<SensorData>> getAllReadings({int? limit}) async { // 添加可选的 limit 参数
     final db = await instance.database;
     final List<Map<String, dynamic>> maps = await db.query(
       table,
       orderBy: '$columnId DESC',
+      limit: limit, // 应用 limit
     );
     if (maps.isEmpty) {
       return [];

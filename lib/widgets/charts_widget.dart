@@ -1,66 +1,44 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
-import '../models/sensor_data.dart';
+// import '../models/sensor_data.dart'; // Unused import
 
-class ChartsWidget extends StatelessWidget {
-  final List<SensorData> sensorDataList;
+// Represents a single chart card
+class SingleChartCard extends StatelessWidget {
+  final String title;
+  final List<FlSpot> spots;
+  final Color color;
+  final double minX;
+  final double maxX;
 
-  const ChartsWidget({super.key, required this.sensorDataList});
+  const SingleChartCard({
+    super.key,
+    required this.title,
+    required this.spots,
+    required this.color,
+    required this.minX,
+    required this.maxX,
+  });
 
   @override
   Widget build(BuildContext context) {
-    if (sensorDataList.isEmpty) {
-      return Container(
-        height: 300,
-        color: Colors.grey[200],
-        child: const Center(child: Text('暂无图表数据')),
-      );
-    }
-
-    // 准备图表数据
-    final noiseSpots = _createSpots(sensorDataList, (data) => data.noiseDb);
-    final tempSpots = _createSpots(sensorDataList, (data) => data.temperature);
-    final humiditySpots = _createSpots(sensorDataList, (data) => data.humidity);
-    final lightSpots = _createSpots(sensorDataList, (data) => data.lightIntensity);
-
-    // 计算 X 轴范围 (时间戳)
-    final minTimestamp = sensorDataList.first.timestamp.millisecondsSinceEpoch.toDouble();
-    final maxTimestamp = sensorDataList.last.timestamp.millisecondsSinceEpoch.toDouble();
-
-    // 计算 Y 轴范围 (可以根据实际数据动态调整，或设置固定范围)
-    // final minY = sensorDataList.map((d) => d.noiseDb).reduce(min); // 示例
-    // final maxY = sensorDataList.map((d) => d.noiseDb).reduce(max); // 示例
-
-    return SizedBox(
-      height: 400, // 可以调整整体高度
-      child: GridView.count(
-        crossAxisCount: 2, // 每行显示两个图表
-        childAspectRatio: 1.5, // 调整宽高比
-        mainAxisSpacing: 8.0,
-        crossAxisSpacing: 8.0,
-        physics: const NeverScrollableScrollPhysics(), // 禁止 GridView 滚动
-        children: [
-          _buildChartCard('噪声 (dB)', noiseSpots, Colors.red, minTimestamp, maxTimestamp),
-          _buildChartCard('温度 (°C)', tempSpots, Colors.blue, minTimestamp, maxTimestamp),
-          _buildChartCard('湿度 (%)', humiditySpots, Colors.green, minTimestamp, maxTimestamp),
-          _buildChartCard('光照 (lux)', lightSpots, Colors.orange, minTimestamp, maxTimestamp),
-        ],
-      ),
-    );
+    // 直接调用构建单个卡片的方法
+    // 注意：现在 minX 和 maxX 是通过构造函数传入的
+    return _buildChartCard(title, spots, color, minX, maxX);
   }
 
-  // 将 SensorData 列表转换为 FlSpot 列表
-  List<FlSpot> _createSpots(List<SensorData> dataList, double Function(SensorData) getY) {
-    return dataList.map((data) {
-      // X 轴使用时间戳的毫秒数
-      final x = data.timestamp.millisecondsSinceEpoch.toDouble();
-      final y = getY(data);
-      return FlSpot(x, y);
-    }).toList();
-  }
+  // 这个方法现在将在 HomeScreen 中使用，或者可以保留为静态方法
+  // static List<FlSpot> createSpots(List<SensorData> dataList, double Function(SensorData) getY) {
+  //   return dataList.map((data) {
+  //     final x = data.timestamp.millisecondsSinceEpoch.toDouble();
+  //     final y = getY(data);
+  //     return FlSpot(x, y);
+  //   }).toList();
+  // }
+  // 暂时注释掉，因为 HomeScreen 会处理数据准备
 
   // 构建单个图表的 Card
+  // 构建单个图表的 Card (保持不变，但现在是 build 方法调用的核心)
   Widget _buildChartCard(String title, List<FlSpot> spots, Color color, double minX, double maxX) {
      // 动态计算 Y 轴范围，增加一些边距
      double minY = double.infinity;
@@ -108,8 +86,9 @@ class ChartsWidget extends StatelessWidget {
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: true,
-                    horizontalInterval: (maxY - minY) / 5, // 调整水平网格线密度
-                    verticalInterval: (maxX - minX) / 5, // 调整垂直网格线密度
+                    // Calculate intervals, ensuring they are positive
+                    horizontalInterval: ((maxY - minY) / 5) <= 0 ? 1.0 : (maxY - minY) / 5,
+                    verticalInterval: ((maxX - minX) / 5) <= 0 ? 1.0 : (maxX - minX) / 5,
                     getDrawingHorizontalLine: (value) {
                       return const FlLine(color: Colors.grey, strokeWidth: 0.5);
                     },
@@ -166,7 +145,7 @@ class ChartsWidget extends StatelessWidget {
                   lineTouchData: LineTouchData(
                      enabled: true,
                      touchTooltipData: LineTouchTooltipData(
-                       getTooltipColor: (touchedSpot) => Colors.blueGrey.withOpacity(0.8), // 使用 getTooltipColor 回调
+                       getTooltipColor: (touchedSpot) => Colors.blueGrey.withAlpha((255 * 0.8).round()), // Use withAlpha instead of deprecated withOpacity
                        getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
                          return touchedBarSpots.map((barSpot) {
                            final flSpot = barSpot;
