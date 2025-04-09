@@ -1,12 +1,78 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import '../models/sensor_data.dart';
+import '../models/settings_model.dart';
 import '../services/communication_service.dart';
 import '../services/database_helper.dart';
+import '../services/settings_service.dart';
 
 class AppState extends ChangeNotifier {
   final CommunicationService _commService = CommunicationService();
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
+  final SettingsService _settingsService = SettingsService();
+
+  // --- 应用设置 ---
+  late AppSettings _settings; // 将在初始化时加载
+  AppSettings get settings => _settings;
+
+  // 主题模式
+  ThemeMode get themeMode => _settings.themeMode;
+
+  // 是否使用动态颜色
+  bool get useDynamicColor => _settings.useDynamicColor;
+
+  // 数据刷新间隔（秒）
+  int get dataRefreshInterval => _settings.dataRefreshInterval;
+
+  // 图表数据点数量
+  int get chartDataPoints => _settings.chartDataPoints;
+
+  // --- 导航状态 ---
+  int _currentNavigationIndex = 0;
+  int get currentNavigationIndex => _currentNavigationIndex;
+
+  // 导航到指定页面
+  void navigateTo(int index) {
+    if (index >= 0 && index <= 2) { // 限制在有效范围内
+      _currentNavigationIndex = index;
+      notifyListeners();
+    }
+  }
+
+  // 构造函数中初始化设置
+  AppState() {
+    _initSettings();
+  }
+
+  // 初始化设置
+  Future<void> _initSettings() async {
+    _settings = await _settingsService.loadSettings();
+    // 应用设置到相关属性
+    _ipAddress = _settings.defaultIpAddress;
+    _port = _settings.defaultPort;
+    notifyListeners();
+  }
+
+  // 更新设置
+  Future<void> updateSettings(AppSettings newSettings) async {
+    _settings = newSettings;
+    await _settingsService.saveSettings(newSettings);
+    notifyListeners();
+  }
+
+  // 更新单个设置项
+  Future<void> updateSetting<T>(String key, T value) async {
+    await _settingsService.updateSetting(key, value);
+    _settings = await _settingsService.loadSettings(); // 重新加载设置
+    notifyListeners();
+  }
+
+  // 重置设置为默认值
+  Future<void> resetSettings() async {
+    await _settingsService.resetSettings();
+    _settings = await _settingsService.loadSettings();
+    notifyListeners();
+  }
 
   // --- 连接状态 ---
   bool _isConnected = false;
@@ -45,8 +111,6 @@ class AppState extends ChangeNotifier {
   SensorData? get currentData => _currentData;
 
   // --- 图表数据 ---
-  // --- 图表数据 ---
-  final int _chartDataBufferSize = 60; // 图表显示的数据点数量
   List<SensorData> _chartDataBuffer = [];
   List<SensorData> get latestReadings => _chartDataBuffer; // Getter 直接返回缓冲区
 
@@ -95,7 +159,7 @@ class AppState extends ChangeNotifier {
       _updateStatus("已连接到 $_ipAddress:$_port");
       _consecutiveReadFailures = 0; // 连接成功，重置失败计数器
       _startDataFetching(); // 开始定时获取数据
-      await loadLatestReadingsForChart(limit: _chartDataBufferSize); // 加载初始图表数据到缓冲区
+      await loadLatestReadingsForChart(limit: chartDataPoints); // 加载初始图表数据到缓冲区
     } else {
       _isConnected = false;
       _updateStatus("连接失败");
@@ -119,7 +183,9 @@ class AppState extends ChangeNotifier {
   void _startDataFetching() {
     _stopDataFetching(); // 先停止旧的定时器（如果有）
     _fetchData(); // 立即获取一次
-    _dataFetchTimer = Timer.periodic(const Duration(seconds: 2), (timer) { // 每 2 秒获取一次
+
+    // 使用设置中的刷新间隔
+    _dataFetchTimer = Timer.periodic(Duration(seconds: dataRefreshInterval), (timer) {
        if (!_isConnected) {
          timer.cancel(); // 如果断开连接，停止定时器
          return;
@@ -155,7 +221,7 @@ class AppState extends ChangeNotifier {
         // --- 更新图表缓冲区 ---
         _chartDataBuffer.add(newData); // 添加新数据到末尾
         // 如果缓冲区超过大小，移除最旧的数据（列表开头）
-        if (_chartDataBuffer.length > _chartDataBufferSize) {
+        if (_chartDataBuffer.length > chartDataPoints) {
           _chartDataBuffer.removeAt(0);
         }
         // ----------------------
@@ -260,7 +326,7 @@ class AppState extends ChangeNotifier {
       await _dbHelper.deleteDataBefore(days);
        _currentData = null; // 可能需要重新加载数据
        _chartDataBuffer = [];
-       await loadLatestReadingsForChart(limit: _chartDataBufferSize); // 重新加载图表数据到缓冲区
+       await loadLatestReadingsForChart(limit: chartDataPoints); // 重新加载图表数据到缓冲区
       notifyListeners();
       _updateStatus("$days 天前的数据已删除");
   }
