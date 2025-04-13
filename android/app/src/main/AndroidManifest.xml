@@ -1,6 +1,19 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- 蓝牙 旧版权限 -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+    <!-- 蓝牙 新版权限 -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <!-- 低功耗蓝牙扫描需要位置权限 -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <!-- 如果需要USB串口功能(OTG) -->
+    <!-- <uses-feature android:name="android.hardware.usb.host" /> -->
+    <!-- 网络权限 (Wi-Fi 连接需要) -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
-        android:label="upper_flutter"
+        android:label="esp32_sensor_app"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

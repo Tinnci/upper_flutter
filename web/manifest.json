@@ -1,6 +1,6 @@
 {
-    "name": "upper_flutter",
-    "short_name": "upper_flutter",
+    "name": "esp32_sensor_app",
+    "short_name": "esp32_sensor_app",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

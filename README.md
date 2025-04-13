@@ -1,4 +1,4 @@
-# upper_flutter
+# esp32_sensor_app
 
 A new Flutter project.
 
