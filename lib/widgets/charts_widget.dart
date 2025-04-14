@@ -109,7 +109,7 @@ class SingleChartCard extends StatelessWidget {
                           final timestamp = DateTime.fromMillisecondsSinceEpoch(value.toInt());
                           // 只显示时:分:秒
                           return SideTitleWidget(
-                            axisSide: meta.axisSide,
+                            meta: meta,
                             space: 4,
                             child: Text(DateFormat('HH:mm:ss').format(timestamp), style: const TextStyle(fontSize: 10)),
                           );
@@ -124,7 +124,10 @@ class SingleChartCard extends StatelessWidget {
                         getTitlesWidget: (value, meta) {
                            // 只显示整数或一位小数
                            String text = value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 1);
-                           return Text(text, style: const TextStyle(fontSize: 10));
+                           return SideTitleWidget(
+                             meta: meta,
+                             child: Text(text, style: const TextStyle(fontSize: 10))
+                           );
                         },
                       ),
                     ),

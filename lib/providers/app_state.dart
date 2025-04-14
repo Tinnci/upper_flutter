@@ -1,15 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // 添加蓝牙库导入
 import '../models/sensor_data.dart';
 import '../models/settings_model.dart';
 import '../services/communication_service.dart';
 import '../services/database_helper.dart';
 import '../services/settings_service.dart';
+import '../services/bluetooth_service.dart' as app_ble;
 
 class AppState extends ChangeNotifier {
   final CommunicationService _commService = CommunicationService();
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   final SettingsService _settingsService = SettingsService();
+  final app_ble.BluetoothService _bluetoothService = app_ble.BluetoothService();
+  StreamSubscription? _bleSensorDataSubscription;
+  StreamSubscription? _bleErrorSubscription; // Subscription for BLE errors
 
   // --- 应用设置 ---
   late AppSettings _settings; // 将在初始化时加载
@@ -41,7 +46,16 @@ class AppState extends ChangeNotifier {
 
   // 构造函数中初始化设置
   AppState() {
-    _initSettings();
+    _initSettings().then((_) {
+      // Start listening to BLE data after settings are loaded
+      _listenToBleData();
+      // If auto-connect is enabled, start continuous scan
+      // Note: BluetoothService might already start scanning if BT is initially on
+      if (_settings.autoConnect) {
+          // We might not need to call this explicitly if BluetoothService handles it
+          // _bluetoothService.startContinuousScan();
+      }
+    });
   }
 
   // 初始化设置
@@ -106,6 +120,11 @@ class AppState extends ChangeNotifier {
   List<String> _availableDevices = [];
   List<String> get availableDevices => _availableDevices;
 
+  // --- 蓝牙状态 ---
+  Stream<List<BluetoothDevice>> get scannedBleDevices => _bluetoothService.scannedDevices;
+  bool get isScanningBle => _bluetoothService.isScanning;
+  // TODO: 添加连接状态等
+
   // --- 实时数据 ---
   SensorData? _currentData;
   SensorData? get currentData => _currentData;
@@ -113,11 +132,6 @@ class AppState extends ChangeNotifier {
   // --- 图表数据 ---
   List<SensorData> _chartDataBuffer = [];
   List<SensorData> get latestReadings => _chartDataBuffer; // Getter 直接返回缓冲区
-
-  // --- 数据接收定时器 ---
-  Timer? _dataFetchTimer;
-  int _consecutiveReadFailures = 0; // 连续读取失败计数器
-  final int _maxReadFailures = 3; // 最大允许连续失败次数
 
   // --- 方法 ---
 
@@ -157,96 +171,27 @@ class AppState extends ChangeNotifier {
     if (success) {
       _isConnected = true;
       _updateStatus("已连接到 $_ipAddress:$_port");
-      _consecutiveReadFailures = 0; // 连接成功，重置失败计数器
-      _startDataFetching(); // 开始定时获取数据
       await loadLatestReadingsForChart(limit: chartDataPoints); // 加载初始图表数据到缓冲区
     } else {
       _isConnected = false;
       _updateStatus("连接失败");
     }
-    notifyListeners(); // 更新连接按钮状态等
+    notifyListeners();
   }
 
   // 断开连接逻辑
   Future<void> _disconnect() async {
-    _stopDataFetching(); // 停止获取数据
-    await _commService.disconnect();
+    // Stop BLE scanning if needed, or handle in BluetoothService
+    // _bluetoothService.stopScan();
+    await _commService.disconnect(); // Disconnect TCP if used
     _isConnected = false;
     _currentData = null; // 清空当前数据
     _chartDataBuffer = []; // 清空图表缓冲区
-    _updateStatus("已断开连接");
-    _consecutiveReadFailures = 0; // 手动断开，重置失败计数器
+    _updateStatus("已断开"); // Simplified status
     notifyListeners();
   }
 
-  // 开始定时获取数据
-  void _startDataFetching() {
-    _stopDataFetching(); // 先停止旧的定时器（如果有）
-    _fetchData(); // 立即获取一次
-
-    // 使用设置中的刷新间隔
-    _dataFetchTimer = Timer.periodic(Duration(seconds: dataRefreshInterval), (timer) {
-       if (!_isConnected) {
-         timer.cancel(); // 如果断开连接，停止定时器
-         return;
-       }
-      _fetchData();
-    });
-  }
-
-  // 停止定时获取数据
-  void _stopDataFetching() {
-    _dataFetchTimer?.cancel();
-    _dataFetchTimer = null;
-  }
-
-  // 获取并处理单次数据
-  Future<void> _fetchData() async {
-    if (!_isConnected) return;
-
-    final dataMap = await _commService.readData();
-    if (dataMap != null) {
-      try {
-         // 使用当前时间戳创建 SensorData 对象
-         final newData = SensorData(
-             timestamp: DateTime.now(), // 使用接收数据的时间
-             noiseDb: dataMap['noise_db'] ?? 0.0,
-             temperature: dataMap['temperature'] ?? 0.0,
-             humidity: dataMap['humidity'] ?? 0.0,
-             lightIntensity: dataMap['light_intensity'] ?? 0.0,
-         );
-        _currentData = newData;
-        await _dbHelper.insertReading(newData); // 存入数据库
-
-        // --- 更新图表缓冲区 ---
-        _chartDataBuffer.add(newData); // 添加新数据到末尾
-        // 如果缓冲区超过大小，移除最旧的数据（列表开头）
-        if (_chartDataBuffer.length > chartDataPoints) {
-          _chartDataBuffer.removeAt(0);
-        }
-        // ----------------------
-        _consecutiveReadFailures = 0; // 读取成功，重置计数器
-        notifyListeners(); // 更新实时数据 UI
-      } catch (e) {
-         debugPrint ("处理接收到的数据时出错: $e"); // Use logger in production
-         _updateStatus("数据处理错误");
-         // 数据处理错误不计入连接失败
-      }
-    } else {
-      // 读取数据失败 (readData 返回 null)
-      _consecutiveReadFailures++;
-      debugPrint ("未能获取到数据 (失败次数: $_consecutiveReadFailures/$_maxReadFailures)"); // Use logger
-      _updateStatus("数据读取失败 ($_consecutiveReadFailures/$_maxReadFailures)"); // 更新状态显示失败次数
-
-      if (_consecutiveReadFailures >= _maxReadFailures) {
-        debugPrint ("连续读取失败次数达到上限，断开连接..."); // Use logger
-        _updateStatus("连接丢失，正在断开...");
-        await _disconnect(); // 达到阈值，执行断开逻辑
-      }
-    }
-  }
-
-   // 加载最新的数据用于图表显示
+  // 加载最新的数据用于图表显示
   Future<void> loadLatestReadingsForChart({int limit = 30}) async {
       try {
           // 从数据库加载最新的数据填充缓冲区
@@ -259,7 +204,6 @@ class AppState extends ChangeNotifier {
           _updateStatus("加载图表数据失败");
       }
   }
-
 
   // 扫描设备
   Future<void> scanDevices() async {
@@ -296,12 +240,90 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  // 扫描蓝牙设备
+  Future<void> scanBleDevices() async {
+    if (_isConnecting || isScanningBle || _isConnected) return; // Use getter
+
+    _updateStatus("正在扫描蓝牙设备...");
+    notifyListeners(); // Update UI to show scanning state
+
+    try {
+      // Start scan and listen to the scanning state via isScanningBle getter
+      _bluetoothService.startContinuousScan(); // Call public method
+      // Update status when scanning finishes (or handle via stream)
+      // Status update will happen via the stream listener or BLE service state
+    } catch (e) {
+      debugPrint("扫描蓝牙设备时出错: $e");
+      _updateStatus("蓝牙扫描出错: ${e.toString()}");
+    } finally {
+        notifyListeners();
+    }
+  }
+
+  // 连接到蓝牙设备
+  Future<void> connectToBleDevice(BluetoothDevice device) async {
+    // TODO: Implement proper connection state management
+    _updateStatus("正在连接到蓝牙设备 ${device.platformName}...");
+    notifyListeners();
+    try {
+      await _bluetoothService.connectToDevice(device);
+      _updateStatus("蓝牙设备连接尝试完成 (查看日志)"); // Update based on actual connection status
+    } catch (e) {
+      debugPrint("连接蓝牙设备时出错: $e");
+      _updateStatus("连接蓝牙设备出错: ${e.toString()}");
+    }
+    notifyListeners();
+  }
+
   // 清理资源
   @override
   void dispose() {
-    _stopDataFetching();
-    _commService.disconnect(); // 确保断开连接
+    _bleSensorDataSubscription?.cancel(); // 取消蓝牙数据订阅
+    _bleErrorSubscription?.cancel(); // 取消蓝牙错误订阅
+    _commService.disconnect(); // Disconnect TCP if needed
+    _bluetoothService.dispose(); // 清理蓝牙服务
     super.dispose();
+  }
+
+  // 监听蓝牙数据流和错误流
+  void _listenToBleData() {
+    _bleSensorDataSubscription?.cancel(); // Cancel previous subscription if any
+    _bleErrorSubscription?.cancel();
+
+    _bleSensorDataSubscription = _bluetoothService.sensorDataStream.listen(
+      (sensorData) {
+        _handleBleSensorData(sensorData);
+      },
+      onError: (error) {
+        debugPrint("BLE Sensor Data Stream Error: $error");
+        _updateStatus("蓝牙数据流错误: ${error.toString()}");
+        // Optionally handle specific errors, e.g., 'Bluetooth is off'
+        if (error.toString().contains('Bluetooth is off')) {
+          _currentData = null;
+          _chartDataBuffer = [];
+          notifyListeners();
+        }
+      },
+      // onDone: () { debugPrint("BLE Sensor Data Stream Closed"); }, // Optional
+    );
+
+    // Optionally, listen to the devices stream or other status streams if needed
+  }
+
+  // 处理从蓝牙接收到的传感器数据
+  Future<void> _handleBleSensorData(SensorData newData) async {
+     _currentData = newData;
+     await _dbHelper.insertReading(newData); // 存入数据库
+
+     // --- 更新图表缓冲区 ---
+     _chartDataBuffer.add(newData); // 添加新数据到末尾
+     // 如果缓冲区超过大小，移除最旧的数据（列表开头）
+     if (_chartDataBuffer.length > chartDataPoints) {
+       _chartDataBuffer.removeAt(0);
+     }
+     // ----------------------
+     _updateStatus("收到蓝牙数据"); // Update status
+     notifyListeners(); // 更新实时数据和图表 UI
   }
 
   // --- 数据库管理方法 ---

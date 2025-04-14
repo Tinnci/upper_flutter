@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'dart:io' show Platform;
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // 导入蓝牙库
 import '../providers/app_state.dart';
 import 'db_management_screen.dart';
 import 'settings_screen.dart';
@@ -55,8 +56,10 @@ class _HomeScreenState extends State<HomeScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
-          appState.isConnected ? Icons.wifi : Icons.wifi_off,
-          color: appState.isConnected ? Colors.green : Colors.red,
+          appState.isConnected ? Icons.wifi : // WiFi connected icon
+          (appState.isScanningBle ? Icons.bluetooth_searching : Icons.bluetooth_disabled), // BLE status icon
+          color: appState.isConnected ? Colors.green : // WiFi color
+                 (appState.isScanningBle ? Colors.blue : Colors.grey), // BLE color
           size: 20,
         ),
         const SizedBox(width: 4),
@@ -192,6 +195,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   _buildControlSection(context, appState),
+                  const SizedBox(height: 16),
+                  _buildBleDeviceListSection(context, appState),
                   const SizedBox(height: 16),
                   _buildDataManagementSection(context, appState),
                   const SizedBox(height: 16),
@@ -345,13 +350,13 @@ class _HomeScreenState extends State<HomeScreen> {
               enabled: !appState.isConnected && !appState.isConnecting && !appState.isScanning,
               onChanged: (value) => appState.port = value,
             ),
-            // 扫描按钮
+            // 扫描蓝牙按钮 - 改为状态指示/手动触发（如果需要）
             _buildAdaptiveButton(
-              label: '扫描设备',
-              icon: Icons.search,
-              onPressed: () => appState.scanDevices(),
-              isLoading: appState.isScanning,
-              enabled: !appState.isConnecting && !appState.isScanning && !appState.isConnected,
+              label: appState.isScanningBle ? '蓝牙扫描中' : '启动蓝牙扫描',
+              icon: Icons.bluetooth_searching,
+              onPressed: appState.isScanningBle ? () {} : () => appState.scanBleDevices(),
+              isLoading: false,
+              enabled: !appState.isConnecting && !appState.isConnected,
             ),
             // 连接/断开按钮
             _buildAdaptiveButton(
@@ -361,6 +366,69 @@ class _HomeScreenState extends State<HomeScreen> {
               isLoading: appState.isConnecting,
               enabled: !appState.isScanning,
               backgroundColor: appState.isConnected ? Colors.redAccent : Colors.green,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 构建蓝牙设备列表区域
+  Widget _buildBleDeviceListSection(BuildContext context, AppState appState) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 2,
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.bluetooth, color: colorScheme.secondary, size: 20),
+                const SizedBox(width: 8),
+                Text('附近蓝牙设备 (仅显示)', style: Theme.of(context).textTheme.titleLarge),
+              ],
+            ),
+            const Divider(),
+            const SizedBox(height: 8),
+            // 使用 StreamBuilder 监听扫描到的设备
+            StreamBuilder<List<BluetoothDevice>>(
+              stream: appState.scannedBleDevices,
+              initialData: const [], // 初始为空列表
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting && (snapshot.data?.isEmpty ?? true)) {
+                  // 如果正在等待并且没有旧数据，显示加载指示器
+                  return const Center(child: Text('等待扫描结果...'));
+                }
+
+                if (snapshot.hasError) {
+                  return Center(child: Text('扫描出错: ${snapshot.error}', style: TextStyle(color: Colors.red)));
+                }
+
+                final devices = snapshot.data ?? [];
+
+                if (devices.isEmpty && !appState.isScanningBle) {
+                  return const Center(child: Text('未发现蓝牙设备，请点击扫描按钮'));
+                } else if (devices.isEmpty && appState.isScanningBle) {
+                  return const Center(child: Text('正在扫描...'));
+                }
+
+                // 显示设备列表
+                return ListView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(), // 禁用内部滚动
+                  itemCount: devices.length,
+                  itemBuilder: (context, index) {
+                    final device = devices[index];
+                    return ListTile(
+                      leading: const Icon(Icons.devices),
+                      title: Text(device.platformName.isNotEmpty ? device.platformName : '未知设备'),
+                      subtitle: Text(device.remoteId.toString()),
+                    );
+                  },
+                );
+              },
             ),
           ],
         ),
@@ -592,7 +660,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Icon(Icons.sensors, color: colorScheme.primary, size: 20),
                 const SizedBox(width: 8),
-                Text('实时数据', style: Theme.of(context).textTheme.titleLarge),
+                Text('实时数据 (来自蓝牙广播)', style: Theme.of(context).textTheme.titleLarge),
               ],
             ),
             const Divider(),

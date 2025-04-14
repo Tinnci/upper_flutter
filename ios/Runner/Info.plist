@@ -45,5 +45,13 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+
+	<!-- Bluetooth Permissions -->
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>需要蓝牙权限以扫描和连接到环境监测设备</string>
+	<key>NSBluetoothPeripheralUsageDescription</key>
+	<string>需要蓝牙权限以扫描和连接到环境监测设备</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>需要位置权限以扫描蓝牙设备</string>
 </dict>
 </plist>
