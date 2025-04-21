@@ -539,87 +539,134 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildRealtimeDataSection(BuildContext context, AppState appState) {
     final data = appState.currentData;
     final colorScheme = Theme.of(context).colorScheme;
+    final screenWidth = MediaQuery.of(context).size.width;
 
-    // 创建平台自适应的数据行
-    Widget buildDataRow(String label, String value, {Color? valueColor}) {
-      if (Platform.isIOS) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: const TextStyle(color: CupertinoColors.label)),
-              Text(
-                value,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: valueColor ?? CupertinoColors.label,
-                ),
-              ),
-            ],
+    return Row(
+      children: [
+        Container(
+          constraints: BoxConstraints(
+            maxWidth: screenWidth / 3,
           ),
-        );
-      } else {
-        // Material 3 风格的数据行
-        return Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label),
-              Text(
-                value,
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: valueColor ?? colorScheme.primary,
-                ),
+          child: Card(
+            elevation: 2,
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.sensors, color: colorScheme.primary, size: 14),
+                      SizedBox(width: 4),
+                      Text(
+                        '实时数据',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                    ],
+                  ),
+                  Divider(height: 8),
+                  Table(
+                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                    columnWidths: {
+                      0: FixedColumnWidth(80), // 增加第一列宽度以适应完整标签
+                      1: FlexColumnWidth(),
+                    },
+                    children: [
+                      _buildTableRow('噪声(db):', data?.noiseDb?.toStringAsFixed(1) ?? '--',
+                          valueColor: data?.noiseDb != null && data!.noiseDb > 70 ? Colors.red : null),
+                      _buildTableRow('温度(℃):', data?.temperature?.toStringAsFixed(1) ?? '--',
+                          valueColor: data?.temperature != null && data!.temperature > 30 ? Colors.orange : null),
+                      _buildTableRow('湿度(％):', data?.humidity?.toStringAsFixed(1) ?? '--'),
+                      _buildTableRow('光照(lux):', data?.lightIntensity?.toStringAsFixed(1) ?? '--'),
+                    ],
+                  ),
+                  SizedBox(height: 4),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.access_time, size: 10, color: colorScheme.outline),
+                      SizedBox(width: 4),
+                      Text(
+                        data != null ? TimeOfDay.fromDateTime(data.timestamp).format(context) : '--',
+                        style: TextStyle(fontSize: 10, color: colorScheme.outline),
+                      ),
+                    ],
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
-        );
-      }
-    }
-
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
+        ),
+        SizedBox(width: 8), // 添加间距
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Material 3 风格的标题
             Row(
               children: [
-                Icon(Icons.sensors, color: colorScheme.primary, size: 20),
-                const SizedBox(width: 8),
-                Text('实时数据', style: Theme.of(context).textTheme.titleLarge),
-              ],
-            ),
-            const Divider(),
-            const SizedBox(height: 8),
-            // 数据行
-            buildDataRow('噪声 (dB):', data?.noiseDb.toStringAsFixed(1) ?? '--',
-              valueColor: data?.noiseDb != null && data!.noiseDb > 70 ? Colors.red : null),
-            buildDataRow('温度 (°C):', data?.temperature.toStringAsFixed(1) ?? '--',
-              valueColor: data?.temperature != null && data!.temperature > 30 ? Colors.orange : null),
-            buildDataRow('湿度 (%):', data?.humidity.toStringAsFixed(1) ?? '--'),
-            buildDataRow('光照 (lux):', data?.lightIntensity.toStringAsFixed(1) ?? '--'),
-            const SizedBox(height: 4),
-            // 时间戳使用较小的字体和次要颜色
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                Icon(Icons.access_time, size: 12, color: colorScheme.outline),
-                const SizedBox(width: 4),
-                Text(
-                  data != null ? TimeOfDay.fromDateTime(data.timestamp).format(context) : '--',
-                  style: TextStyle(fontSize: 12, color: colorScheme.outline),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '第一小组:施天池，李宋琦，施昊，宋施喆，朱奕澄',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                    SizedBox(height: 4), // 添加垂直间距
+                    Text(
+                      '指导老师：王旭智',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(width: 16),
+                Image.asset(
+                  'assets/images/shu-logo.jpg',
+                  height: 100,  // 调整 logo 大小
+                  fit: BoxFit.contain,
                 ),
               ],
             ),
           ],
         ),
-      ),
+      ],
+    );
+  }
+
+  // 构建表格行
+  TableRow _buildTableRow(String label, String value, {Color? valueColor}) {
+    return TableRow(
+      children: [
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 3.0),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.normal,
+            ),
+          ),
+        ),
+        Padding(
+          padding: EdgeInsets.symmetric(vertical: 3.0),
+          child: Text(
+            value,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.bold,
+              color: valueColor ?? Colors.black,
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -676,49 +723,45 @@ class _HomeScreenState extends State<HomeScreen> {
       );
     }
 
-    // --- 数据准备 ---
+    // 准备图表数据
     final noiseSpots = _createSpots(sensorDataList, (data) => data.noiseDb);
     final tempSpots = _createSpots(sensorDataList, (data) => data.temperature);
     final humiditySpots = _createSpots(sensorDataList, (data) => data.humidity);
     final lightSpots = _createSpots(sensorDataList, (data) => data.lightIntensity);
 
-    // 计算 X 轴范围 (时间戳) - 确保列表不为空
     final minTimestamp = sensorDataList.first.timestamp.millisecondsSinceEpoch.toDouble();
     final maxTimestamp = sensorDataList.last.timestamp.millisecondsSinceEpoch.toDouble();
-    // --- 数据准备结束 ---
 
-    // --- 定义图表卡片列表 - 使用主题颜色 ---
     final chartCards = [
       SingleChartCard(
         title: '噪声 (dB)',
         spots: noiseSpots,
         color: Platform.isIOS ? CupertinoColors.systemRed : colorScheme.error,
         minX: minTimestamp,
-        maxX: maxTimestamp
+        maxX: maxTimestamp,
       ),
       SingleChartCard(
         title: '温度 (°C)',
         spots: tempSpots,
         color: Platform.isIOS ? CupertinoColors.systemBlue : colorScheme.primary,
         minX: minTimestamp,
-        maxX: maxTimestamp
+        maxX: maxTimestamp,
       ),
       SingleChartCard(
         title: '湿度 (%)',
         spots: humiditySpots,
         color: Platform.isIOS ? CupertinoColors.systemGreen : colorScheme.tertiary,
         minX: minTimestamp,
-        maxX: maxTimestamp
+        maxX: maxTimestamp,
       ),
       SingleChartCard(
         title: '光照 (lux)',
         spots: lightSpots,
         color: Platform.isIOS ? CupertinoColors.systemOrange : colorScheme.secondary,
         minX: minTimestamp,
-        maxX: maxTimestamp
+        maxX: maxTimestamp,
       ),
     ];
-    // --- 图表卡片列表结束 ---
 
     return Card(
       elevation: 2,
@@ -727,7 +770,6 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Material 3 风格的标题
             Row(
               children: [
                 Icon(Icons.insert_chart_outlined, color: colorScheme.primary, size: 20),
@@ -737,47 +779,14 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             const Divider(),
             const SizedBox(height: 12),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final screenWidth = constraints.maxWidth;
-
-                // --- Material 3 Breakpoints ---
-                const double compactWidth = 600;
-                const double mediumWidth = 840;
-                // --- Breakpoints End ---
-
-                if (screenWidth < compactWidth) {
-                  // Compact: 单列布局
-                  return Column(
-                    children: chartCards.map((card) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12.0),
-                      child: SizedBox(height: 200, child: card),
-                    )).toList(),
-                  );
-                } else if (screenWidth < mediumWidth) {
-                  // Medium: 2 列 GridView
-                  return GridView.count(
-                    crossAxisCount: 2,
-                    childAspectRatio: 1.8,
-                    mainAxisSpacing: 12.0,
-                    crossAxisSpacing: 12.0,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: chartCards.map((card) => card).toList(),
-                  );
-                } else {
-                  // Expanded: 4 列 GridView
-                  return GridView.count(
-                    crossAxisCount: 4,
-                    childAspectRatio: 1.5,
-                    mainAxisSpacing: 12.0,
-                    crossAxisSpacing: 12.0,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    children: chartCards.map((card) => card).toList(),
-                  );
-                }
-              },
+            GridView.count(
+              crossAxisCount: 2, // 设置为两列
+              childAspectRatio: 1.5, // 控制卡片的宽高比
+              mainAxisSpacing: 12.0, // 卡片之间的垂直间距
+              crossAxisSpacing: 12.0, // 卡片之间的水平间距
+              shrinkWrap: true, // 让 GridView 的高度根据内容自适应
+              physics: const NeverScrollableScrollPhysics(), // 禁止滚动，交由外部滚动
+              children: chartCards.map((card) => card).toList(),
             ),
           ],
         ),
