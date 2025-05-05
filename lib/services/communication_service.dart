@@ -8,6 +8,7 @@ import 'package:network_info_plus/network_info_plus.dart';
 class CommunicationService {
   Socket? _socket;
   bool _isConnected = false;
+  bool _hasReceivedConnected = false; // 新增标志
   // String? _host; // Unused
   // int? _port; // Unused
   final Duration _timeout = const Duration(seconds: 5); // 连接和读取超时
@@ -126,63 +127,82 @@ class CommunicationService {
   // 读取传感器数据
   Future<Map<String, dynamic>?> readData() async {
     if (!_isConnected || _socket == null) {
-      debugPrint ("未连接到设备，无法读取数据"); // Use logger
+      debugPrint ("未连接到设备，无法读取数据");
       return null;
     }
 
     try {
-      debugPrint ("发送命令: GET_CURRENT"); // Use logger
-      _socket!.writeln("GET_CURRENT"); // 使用 writeln 自动添加换行符
-      await _socket!.flush(); // 确保数据已发送
+      debugPrint ("发送命令: GET_CURRENT");
+      _socket!.writeln("GET_CURRENT");
+      await _socket!.flush();
 
-      debugPrint ("等待设备响应..."); // Use logger
+      debugPrint ("等待设备响应...");
 
-      // 使用广播流接收数据，避免监听问题
       try {
-        // 等待最多 _timeout 时间来接收数据
-        final List<int> rawData = await _dataStreamController.stream.first.timeout(_timeout);
-        final response = utf8.decode(rawData).trim();
-        debugPrint ("收到响应: $response"); // Use logger
+        String response;
+        if (!_hasReceivedConnected) {
+          // 首次需要读取CONNECTED
+          final List<int> connectedData = await _dataStreamController.stream.first.timeout(_timeout);
+          final connectedResponse = utf8.decode(connectedData).trim();
+          debugPrint("收到确认消息: $connectedResponse");
+          if (connectedResponse != "CONNECTED") {
+            debugPrint("未收到预期的确认消息");
+            return null;
+          }
+          _hasReceivedConnected = true;
+          // 再读JSON
+          final List<int> jsonData = await _dataStreamController.stream.first.timeout(_timeout);
+          response = utf8.decode(jsonData).trim();
+          debugPrint("收到JSON数据: $response");
+        } else {
+          // 后续直接读JSON
+          final List<int> jsonData = await _dataStreamController.stream.first.timeout(_timeout);
+          response = utf8.decode(jsonData).trim();
+          debugPrint("收到JSON数据: $response");
+        }
 
-        // 尝试解析 JSON
         try {
-          // ESP8266 可能一次发送多行，或者不完整的 JSON
-          // 简单的实现：假设一次接收到完整的 JSON
-          final jsonData = jsonDecode(response) as Map<String, dynamic>;
-          debugPrint ("成功解析JSON数据: $jsonData"); // Use logger
-          // 转换为期望的 Map 格式 (与 Python 版本一致)
+          final jsonMap = jsonDecode(response) as Map<String, dynamic>;
+          debugPrint("成功解析JSON数据: $jsonMap");
+
+          // 适配main.py的字段
           final result = {
-            'noise_db': (jsonData['decibels'] as num?)?.toDouble() ?? 0.0,
-            'temperature': (jsonData['temperature'] as num?)?.toDouble() ?? 0.0,
-            'humidity': (jsonData['humidity'] as num?)?.toDouble() ?? 0.0,
-            'light_intensity': (jsonData['lux'] as num?)?.toDouble() ?? 0.0,
+            'timestamp_ms': jsonMap['timestamp_ms'] as int?,
+            'page': jsonMap['page'] as int?,
+            'wifi_status': jsonMap['wifi_status'] as String?,
+            'ble_status': jsonMap['ble_status'] as String?,
+            'temperature': (jsonMap['temperature_c'] as num?)?.toDouble(),
+            'humidity': (jsonMap['humidity_percent'] as num?)?.toDouble(),
+            'light_intensity': (jsonMap['lux'] as num?)?.toDouble(),
+            // 统一转换为 noiseIMs
+            'noiseIMs': (jsonMap['noise_rms_smoothed'] as num?)?.toDouble(),
+            'keys_pressed': jsonMap['keys_pressed'] as String?,
+            'mem_free': jsonMap['mem_free_bytes'] as int?,
           };
-          debugPrint ("转换后的数据: $result"); // Use logger
+          debugPrint("转换后的数据: $result");
           return result;
         } catch (e) {
-          debugPrint ("解析 JSON 失败: $e, 响应: $response"); // Use logger
-          return null; // 解析失败返回 null
+          debugPrint("解析 JSON 失败: $e, 响应: $response");
+          return null;
         }
       } on TimeoutException {
-        debugPrint ("读取数据超时"); // Use logger
+        debugPrint("读取数据超时");
         return null;
       } on SocketException catch (e) {
-        debugPrint ("读取数据时发生 Socket 错误: ${e.message}. 连接可能已断开."); // Use logger
-        await disconnect(); // Socket 错误通常意味着连接问题，断开
+        debugPrint ("读取数据时发生 Socket 错误: ${e.message}. 连接可能已断开.");
+        await disconnect();
         return null;
       } catch (e) {
-        debugPrint ("读取数据流时发生未知错误: $e"); // Use logger
-        // 其他流错误也可能意味着连接问题
+        debugPrint ("读取数据流时发生未知错误: $e");
         await disconnect();
         return null;
       }
     } on SocketException catch (e) {
-      debugPrint ("发送命令或刷新 Socket 时发生错误: ${e.message}. 连接可能已断开."); // Use logger
-      await disconnect(); // Socket 错误通常意味着连接问题，断开
+      debugPrint ("发送命令或刷新 Socket 时发生错误: ${e.message}. 连接可能已断开.");
+      await disconnect();
       return null;
     } catch (e) {
-      debugPrint ("WiFi 读取数据时发生未知错误: $e"); // Use logger
-      // 其他未知错误也可能需要断开
+      debugPrint ("WiFi 读取数据时发生未知错误: $e");
       await disconnect();
       return null;
     }

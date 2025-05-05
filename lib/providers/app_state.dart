@@ -210,7 +210,7 @@ class AppState extends ChangeNotifier {
          // 使用当前时间戳创建 SensorData 对象
          final newData = SensorData(
              timestamp: DateTime.now(), // 使用接收数据的时间
-             noiseDb: dataMap['noise_db'] ?? 0.0,
+             noiseIMs: dataMap['noiseIMs'] ?? dataMap['noise_db'] ?? 0.0,
              temperature: dataMap['temperature'] ?? 0.0,
              humidity: dataMap['humidity'] ?? 0.0,
              lightIntensity: dataMap['light_intensity'] ?? 0.0,

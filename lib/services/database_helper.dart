@@ -13,7 +13,7 @@ class DatabaseHelper {
 
   static const columnId = 'id';
   static const columnTimestamp = 'timestamp';
-  static const columnNoiseDb = 'noise_db';
+  static const columnNoiseIMs = 'noiseIMs';
   static const columnTemperature = 'temperature';
   static const columnHumidity = 'humidity';
   static const columnLightIntensity = 'light_intensity';
@@ -46,7 +46,7 @@ class DatabaseHelper {
           CREATE TABLE $table (
             $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
             $columnTimestamp TEXT NOT NULL,
-            $columnNoiseDb REAL,
+            $columnNoiseIMs REAL,
             $columnTemperature REAL,
             $columnHumidity REAL,
             $columnLightIntensity REAL

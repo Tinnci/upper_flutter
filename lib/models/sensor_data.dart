@@ -3,7 +3,7 @@ import 'package:intl/intl.dart';
 class SensorData {
   final int? id;
   final DateTime timestamp;
-  final double noiseDb;
+  final double noiseIMs;
   final double temperature;
   final double humidity;
   final double lightIntensity;
@@ -11,11 +11,13 @@ class SensorData {
   SensorData({
     this.id,
     required this.timestamp,
-    required this.noiseDb,
+    required this.noiseIMs,
     required this.temperature,
     required this.humidity,
     required this.lightIntensity,
   });
+
+  double get noiseDb => noiseIMs;
 
   // 用于从数据库 Map 转换为 SensorData 对象
   factory SensorData.fromMap(Map<String, dynamic> map) {
@@ -23,10 +25,10 @@ class SensorData {
       id: map['id'] as int?,
       // 解析 ISO8601 格式的字符串
       timestamp: DateTime.parse(map['timestamp'] as String),
-      noiseDb: map['noise_db'] as double,
-      temperature: map['temperature'] as double,
-      humidity: map['humidity'] as double,
-      lightIntensity: map['light_intensity'] as double,
+      noiseIMs: (map['noiseIMs'] ?? map['noise_db'] ?? 0).toDouble(),
+      temperature: (map['temperature'] ?? 0).toDouble(),
+      humidity: (map['humidity'] ?? 0).toDouble(),
+      lightIntensity: (map['light_intensity'] ?? 0).toDouble(),
     );
   }
 
@@ -37,7 +39,7 @@ class SensorData {
     return {
       'id': id, // id 在插入时通常为 null，由数据库生成
       'timestamp': timestampString,
-      'noise_db': noiseDb,
+      'noiseIMs': noiseIMs,
       'temperature': temperature,
       'humidity': humidity,
       'light_intensity': lightIntensity,
@@ -47,6 +49,6 @@ class SensorData {
   // 方便打印和调试
   @override
   String toString() {
-    return 'SensorData{id: $id, timestamp: $timestamp, noiseDb: $noiseDb, temperature: $temperature, humidity: $humidity, lightIntensity: $lightIntensity}';
+    return 'SensorData{id: $id, timestamp: $timestamp, noiseIMs: $noiseIMs, temperature: $temperature, humidity: $humidity, lightIntensity: $lightIntensity}';
   }
 }

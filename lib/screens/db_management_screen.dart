@@ -335,7 +335,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
            columns: const [
              DataColumn(label: Text('ID')),
              DataColumn(label: Text('时间戳')),
-             DataColumn(label: Text('噪声(dB)')),
+             DataColumn(label: Text('噪声(dB)')), // 修改字段名
              DataColumn(label: Text('温度(°C)')),
              DataColumn(label: Text('湿度(%)')),
              DataColumn(label: Text('光照(lux)')),
@@ -344,7 +344,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
              cells: [
                DataCell(Text(item.id?.toString() ?? '')),
                DataCell(Text(_dateFormat.format(item.timestamp))),
-               DataCell(Text(item.noiseDb.toStringAsFixed(1))),
+               DataCell(Text(item.noiseDb.toStringAsFixed(1))), // 修改为 noiseDb
                DataCell(Text(item.temperature.toStringAsFixed(1))),
                DataCell(Text(item.humidity.toStringAsFixed(1))),
                DataCell(Text(item.lightIntensity.toStringAsFixed(1))),

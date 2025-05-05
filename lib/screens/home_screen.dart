@@ -477,12 +477,9 @@ class _HomeScreenState extends State<HomeScreen> {
       elevation: 2,
       child: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Wrap(
-          spacing: 16.0,
-          runSpacing: 16.0,
-          crossAxisAlignment: WrapCrossAlignment.center,
+        child: Row(  // 使用 Row 替代 Wrap
+          mainAxisSize: MainAxisSize.min, // 让 Card 宽度适应内容
           children: [
-            // 删除所有数据按钮
             _buildAdaptiveButton(
               label: '删除所有数据',
               icon: Icons.delete_forever,
@@ -501,32 +498,40 @@ class _HomeScreenState extends State<HomeScreen> {
               },
               backgroundColor: Colors.orange,
             ),
-            const Text("删除"),
-            buildAdaptiveNumberField(),
-            const Text("天前的数据"),
-            // 删除旧数据按钮
-            _buildAdaptiveButton(
-              label: '删除旧数据',
-              icon: Icons.delete_outline,
-              onPressed: () async {
-                final days = int.tryParse(_daysController.text);
-                if (days == null || days <= 0) {
-                  if (!mounted) return;
-                  showAdaptiveMessage('请输入有效的天数');
-                  return;
-                }
-                final confirm = await showAdaptiveDialog(
-                  title: '确认删除',
-                  content: '确定要删除 $days 天前的数据吗？此操作不可恢复！',
-                  cancelText: '取消',
-                  confirmText: '删除',
-                );
-                if (confirm == true) {
-                  await appState.deleteDbDataBefore(days);
-                  if (!mounted) return;
-                  showAdaptiveMessage('$days 天前的数据已删除');
-                }
-              },
+            SizedBox(width: 24), // 增加按钮之间的间距
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("删除"),
+                SizedBox(width: 8),
+                buildAdaptiveNumberField(),
+                SizedBox(width: 8),
+                const Text("天前的数据"),
+                SizedBox(width: 16),
+                _buildAdaptiveButton(
+                  label: '删除旧数据',
+                  icon: Icons.delete_outline,
+                  onPressed: () async {
+                    final days = int.tryParse(_daysController.text);
+                    if (days == null || days <= 0) {
+                      if (!mounted) return;
+                      showAdaptiveMessage('请输入有效的天数');
+                      return;
+                    }
+                    final confirm = await showAdaptiveDialog(
+                      title: '确认删除',
+                      content: '确定要删除 $days 天前的数据吗？此操作不可恢复！',
+                      cancelText: '取消',
+                      confirmText: '删除',
+                    );
+                    if (confirm == true) {
+                      await appState.deleteDbDataBefore(days);
+                      if (!mounted) return;
+                      showAdaptiveMessage('$days 天前的数据已删除');
+                    }
+                  },
+                ),
+              ],
             ),
           ],
         ),
@@ -574,11 +579,17 @@ class _HomeScreenState extends State<HomeScreen> {
                       1: FlexColumnWidth(),
                     },
                     children: [
-                      _buildTableRow('噪声(db):', data?.noiseDb?.toStringAsFixed(1) ?? '--',
-                          valueColor: data?.noiseDb != null && data!.noiseDb > 70 ? Colors.red : null),
-                      _buildTableRow('温度(℃):', data?.temperature?.toStringAsFixed(1) ?? '--',
-                          valueColor: data?.temperature != null && data!.temperature > 30 ? Colors.orange : null),
-                      _buildTableRow('湿度(％):', data?.humidity?.toStringAsFixed(1) ?? '--'),
+                      _buildTableRow(
+                        '噪声(db):',
+                        data?.noiseDb?.toStringAsFixed(1) ?? '--',
+                        valueColor: data != null && data.noiseDb > 70 ? Colors.red : null
+                      ),
+                      _buildTableRow(
+                        '温度(℃):',
+                        data?.temperature?.toStringAsFixed(1) ?? '--',
+                        valueColor: data != null && data.temperature > 30 ? Colors.orange : null
+                      ),
+                      _buildTableRow('湿度(％):', data?.humidity.toStringAsFixed(1) ?? '--'),
                       _buildTableRow('光照(lux):', data?.lightIntensity?.toStringAsFixed(1) ?? '--'),
                     ],
                   ),
@@ -764,29 +775,40 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return Card(
-      elevation: 2,
+      elevation: 1,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(12.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(Icons.insert_chart_outlined, color: colorScheme.primary, size: 20),
-                const SizedBox(width: 8),
-                Text('历史数据图表', style: Theme.of(context).textTheme.titleLarge),
+                Icon(Icons.insert_chart_outlined, color: colorScheme.primary, size: 16),
+                const SizedBox(width: 6),
+                Text('历史数据图表', 
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontSize: 14,
+                  ),
+                ),
               ],
             ),
-            const Divider(),
-            const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 2, // 设置为两列
-              childAspectRatio: 1.5, // 控制卡片的宽高比
-              mainAxisSpacing: 12.0, // 卡片之间的垂直间距
-              crossAxisSpacing: 12.0, // 卡片之间的水平间距
-              shrinkWrap: true, // 让 GridView 的高度根据内容自适应
-              physics: const NeverScrollableScrollPhysics(), // 禁止滚动，交由外部滚动
-              children: chartCards.map((card) => card).toList(),
+            const Divider(height: 12),
+            const SizedBox(height: 8),
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                height: 260, // 固定图表区域高度
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: chartCards.map((card) => 
+                    Container(
+                      width: 330, // 减小单个图表的宽度
+                      margin: const EdgeInsets.only(right: 15.0), // 调整图表间距
+                      child: card,
+                    )
+                  ).toList(),
+                ),
+              ),
             ),
           ],
         ),
