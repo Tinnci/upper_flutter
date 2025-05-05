@@ -40,7 +40,7 @@ class SettingsScreen extends StatelessWidget {
             value: value,
             onChanged: onChanged,
             // Use primary color from theme
-            activeColor: Theme.of(context).colorScheme.primary, 
+            activeTrackColor: Theme.of(context).colorScheme.primary, 
           )
         : Switch(
             value: value,

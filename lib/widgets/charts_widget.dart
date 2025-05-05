@@ -129,7 +129,7 @@ class SingleChartCard extends StatelessWidget {
                              try {
                                final timestamp = DateTime.fromMillisecondsSinceEpoch(value.toInt());
                                // --- 关键修改：只显示秒 ---
-                               final String secondText = DateFormat('ss').format(timestamp) + 's'; 
+                               final String secondText = '${DateFormat('ss').format(timestamp)}s'; 
                                return SideTitleWidget(
                                  axisSide: meta.axisSide,
                                  space: 4,

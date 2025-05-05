@@ -28,6 +28,11 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
   // Controller for delete days input (will be added later if needed)
   final TextEditingController _daysController = TextEditingController(text: "7");
 
+  // --- 添加排序状态变量 ---
+  int? _sortColumnIndex; // 可空，初始无排序
+  bool _sortAscending = true; // 默认升序
+  // --- 结束添加 ---
+
   bool _initialLoadDone = false; // Flag to ensure load only happens once initially
 
   @override
@@ -227,6 +232,27 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
     }
   }
 
+  // --- 添加通用排序方法 ---
+  void _sortData<T extends Comparable?>(T? Function(SensorData d) getField, int columnIndex, bool ascending) {
+    _data.sort((a, b) {
+      final aValue = getField(a);
+      final bValue = getField(b);
+      // --- 恢复并修正 null 处理逻辑 ---
+      if (aValue == null && bValue == null) return 0;
+      if (aValue == null) return ascending ? -1 : 1; // nulls first on ascending
+      if (bValue == null) return ascending ? 1 : -1; // nulls last on descending
+
+      // --- 确保非空值可以比较 ---
+      // 因为 T extends Comparable?, 在检查 null 后，aValue 和 bValue 都是 Comparable
+      return ascending ? Comparable.compare(aValue, bValue) : Comparable.compare(bValue, aValue);
+    });
+    setState(() {
+      _sortColumnIndex = columnIndex;
+      _sortAscending = ascending;
+    });
+  }
+  // --- 结束添加 ---
+
   @override
   Widget build(BuildContext context) {
     // Determine if the screen is narrow
@@ -256,23 +282,45 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
                ),
              ],
            ),
-           body: Padding( // Add padding around the body content
-             padding: EdgeInsets.all(isSmallScreen ? 8.0 : 16.0),
-             child: Column(
-               children: [
-                 _buildFilterSection(context),
-                 _buildManagementSection(context), // Add management buttons section
-                 const Divider(height: 24), // Add more space around divider
-                 Expanded(
-                   child: _isLoading
+           body: SingleChildScrollView(
+             child: Padding( // Add padding around the body content
+               padding: EdgeInsets.all(isSmallScreen ? 8.0 : 16.0),
+               child: Column(
+                 children: [
+                   _buildFilterSection(context),
+                   _buildManagementSection(context), // Add management buttons section
+                   const Divider(height: 24), // Add more space around divider
+                   _isLoading
                        ? const Center(child: CircularProgressIndicator())
                        : _data.isEmpty
                            ? Center(
-                              child: Text('没有数据', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline))
-                            )
+                               child: Padding(
+                                 padding: const EdgeInsets.symmetric(vertical: 32.0), // Add some vertical padding
+                                 child: Column(
+                                   mainAxisAlignment: MainAxisAlignment.center,
+                                   children: [
+                                     Icon(
+                                       Icons.find_in_page_outlined, // Use a relevant icon
+                                       size: 64,
+                                       color: Theme.of(context).colorScheme.outline,
+                                     ),
+                                     const SizedBox(height: 16),
+                                     Text(
+                                       '未找到数据记录', 
+                                       style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline)
+                                     ),
+                                     const SizedBox(height: 8),
+                                     Text(
+                                       '请尝试清除筛选条件或选择不同时间范围。', 
+                                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)
+                                     ),
+                                   ],
+                                 ),
+                               ),
+                             )
                            : _buildDataTable(),
-                 ),
-               ],
+                 ],
+               ),
              ),
            ),
          ),
@@ -409,19 +457,54 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
        // header: const Text('传感器数据记录'), // Optional header
        rowsPerPage: 15, // Adjust number of rows per page
        showCheckboxColumn: false, // Don't need checkboxes usually
+       // --- 添加排序相关属性 ---
+       sortColumnIndex: _sortColumnIndex,
+       sortAscending: _sortAscending,
+       // --- 结束添加 ---
        columns: [ // Define columns explicitly
-         const DataColumn(label: Text('ID'), numeric: true),
-         const DataColumn(label: Text('时间戳')),
-         DataColumn(label: Text('噪声(${'\u{dB}'})'), numeric: true), // Use dB symbol
-         DataColumn(label: Text('温度(${'\u{00B0}'}C)'), numeric: true), // Use degree symbol
-         DataColumn(label: Text('湿度(%)'), numeric: true),
-         DataColumn(label: Text('光照(lx)'), numeric: true), // Use lx symbol
+         // --- 修正 DataColumn 的 onSort 调用，使用正确的类型 ---
+         DataColumn(
+           label: const Text('ID'), 
+           numeric: true,
+           // ID 是 num? (int?), 它是 Comparable?
+           onSort: (columnIndex, ascending) => _sortData<num?>((d) => d.id, columnIndex, ascending),
+         ),
+         DataColumn(
+           label: const Text('时间戳'),
+           // DateTime 是 Comparable
+           onSort: (columnIndex, ascending) => _sortData<DateTime>((d) => d.timestamp, columnIndex, ascending),
+         ),
+         DataColumn(
+           label: Text('噪声(${ '\u{dB}' })'), 
+           numeric: true,
+           // double 是 Comparable
+           onSort: (columnIndex, ascending) => _sortData<double>((d) => d.noiseDb, columnIndex, ascending),
+         ), // Use dB symbol
+         DataColumn(
+           label: Text('温度(${ '\u{00B0}' }C)'), 
+           numeric: true,
+           // double 是 Comparable
+           onSort: (columnIndex, ascending) => _sortData<double>((d) => d.temperature, columnIndex, ascending),
+         ), // Use degree symbol
+         DataColumn(
+           label: Text('湿度(%)'), 
+           numeric: true,
+           // double 是 Comparable
+           onSort: (columnIndex, ascending) => _sortData<double>((d) => d.humidity, columnIndex, ascending),
+         ),
+         DataColumn(
+           label: Text('光照(lx)'), 
+           numeric: true,
+           // double 是 Comparable
+           onSort: (columnIndex, ascending) => _sortData<double>((d) => d.lightIntensity, columnIndex, ascending),
+         ), // Use lx symbol
+         // --- 结束修改 ---
        ],
        source: _SensorDataSource(data: _data, dateFormat: _dateFormat, context: context),
        columnSpacing: 20, // Adjust spacing
        // horizontalMargin: 10,
-       dataRowMinHeight: 40,
-       dataRowMaxHeight: 48, // Adjust row height
+       dataRowMinHeight: kMinInteractiveDimension, // Use Material default min height
+       dataRowMaxHeight: kMinInteractiveDimension + 8, // Allow slightly more height
     );
   }
 }

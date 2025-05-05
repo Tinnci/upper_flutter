@@ -239,7 +239,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                    children: [
                      _buildControlSection(context, appState),
                      SizedBox(height: isSmallScreen ? 8 : 16),
-                     _buildRealtimeDataSection(context, appState),
+                     
+                     // --- 修改开始: 使用 LayoutBuilder 条件显示 Logo ---
+                     LayoutBuilder(
+                       builder: (context, constraints) {
+                         const double imageDisplayBreakpoint = 900.0; // 定义显示图片的宽度阈值
+                         final bool showImage = constraints.maxWidth >= imageDisplayBreakpoint;
+                     
+                         if (showImage) {
+                           // 宽屏：显示数据面板和 Logo
+                           return Row(
+                             crossAxisAlignment: CrossAxisAlignment.start, // 顶部对齐
+                             children: [
+                               // 让数据面板占据一部分空间，但不强制填满
+                               Flexible( // 使用 Flexible 或 Expanded
+                                 child: _buildRealtimeDataSection(context, appState),
+                               ),
+                               const SizedBox(width: 24), // 添加间距
+                               // 显示 Logo 并限制大小
+                               Padding( // 给图片一些内边距可能更好看
+                                 padding: const EdgeInsets.only(top: 16.0), // 调整垂直位置
+                                 child: SizedBox(
+                                   height: 120, // 限制图片高度
+                                   child: Image.asset(
+                                     'assets/images/shu-logo.jpg',
+                                     fit: BoxFit.contain, // 保持图片比例
+                                   ),
+                                 ),
+                               ),
+                               // 如果希望 Logo 始终靠右，可以在这里加 Spacer()
+                               // Spacer(), 
+                             ],
+                           );
+                         } else {
+                           // 窄屏：只显示数据面板
+                           return _buildRealtimeDataSection(context, appState);
+                         }
+                       },
+                     ),
+                     // --- 修改结束 ---
+                     
                      SizedBox(height: isSmallScreen ? 8 : 16),
                      // Pass screen dimensions to chart section
                      _buildChartSection(context, appState, screenWidth, screenHeight), 
@@ -380,52 +419,54 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
-        child: Wrap(
-          spacing: 16.0,
-          runSpacing: 12.0, // Slightly less run spacing
-          alignment: WrapAlignment.spaceAround, // Better distribution
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            buildAdaptiveTextField(
-              controller: _ipController,
-              label: 'IP 地址',
-              hint: '192.168.x.x',
-              enabled: isInputEnabled,
-              onSettingChanged: (value) => appState.updateSetting('defaultIpAddress', value),
-              minWidth: 120,
-              maxWidth: 180,
-            ),
-            buildAdaptiveTextField(
-              controller: _portController,
-              label: '端口',
-              hint: 'e.g. 8888',
-              keyboardType: TextInputType.number,
-              enabled: isInputEnabled,
-              onSettingChanged: (value) => appState.updateSetting('defaultPort', value),
-              minWidth: 80,
-              maxWidth: 100,
-            ),
-            // Use tonal or outlined for less prominent actions
-            _buildAdaptiveButton(
-              label: '扫描', // Shorter label if possible
-              icon: Icons.search,
-              onPressed: () => appState.scanDevices(),
-              isLoading: appState.isScanning,
-              enabled: !appState.isConnecting && !appState.isScanning && !appState.isConnected,
-              type: 'tonal', // Use tonal button
-            ),
-            _buildAdaptiveButton(
-              label: appState.isConnected ? '断开' : '连接',
-              icon: appState.isConnected ? Icons.link_off : Icons.link,
-              onPressed: () => appState.toggleConnection(),
-              isLoading: appState.isConnecting,
-              enabled: !appState.isScanning,
-              // Use FilledButton for the primary action
-              type: 'filled', 
-              // Use theme error color for disconnect indication
-              color: appState.isConnected ? Theme.of(context).colorScheme.error : null, 
-            ),
-          ],
+        child: Center(
+          child: Wrap(
+            spacing: 16.0,
+            runSpacing: 12.0, // Slightly less run spacing
+            alignment: WrapAlignment.spaceAround, // Better distribution
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              buildAdaptiveTextField(
+                controller: _ipController,
+                label: 'IP 地址',
+                hint: '192.168.x.x',
+                enabled: isInputEnabled,
+                onSettingChanged: (value) => appState.updateSetting('defaultIpAddress', value),
+                minWidth: 120,
+                maxWidth: 180,
+              ),
+              buildAdaptiveTextField(
+                controller: _portController,
+                label: '端口',
+                hint: 'e.g. 8888',
+                keyboardType: TextInputType.number,
+                enabled: isInputEnabled,
+                onSettingChanged: (value) => appState.updateSetting('defaultPort', value),
+                minWidth: 80,
+                maxWidth: 100,
+              ),
+              // Use tonal or outlined for less prominent actions
+              _buildAdaptiveButton(
+                label: '扫描', // Shorter label if possible
+                icon: Icons.search,
+                onPressed: () => appState.scanDevices(),
+                isLoading: appState.isScanning,
+                enabled: !appState.isConnecting && !appState.isScanning && !appState.isConnected,
+                type: 'tonal', // Use tonal button
+              ),
+              _buildAdaptiveButton(
+                label: appState.isConnected ? '断开' : '连接',
+                icon: appState.isConnected ? Icons.link_off : Icons.link,
+                onPressed: () => appState.toggleConnection(),
+                isLoading: appState.isConnecting,
+                enabled: !appState.isScanning,
+                // Use FilledButton for the primary action
+                type: 'filled', 
+                // Use theme error color for disconnect indication
+                color: appState.isConnected ? Theme.of(context).colorScheme.error : null, 
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -441,22 +482,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Helper to build a data row with Icon and Label
     Widget buildDataRow(IconData icon, String label, String value, {Color? valueColor, bool highlight = false}) {
       return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4.0), // Consistent vertical padding
+        padding: const EdgeInsets.symmetric(vertical: 4.0),
         child: Row(
-          // mainAxisAlignment: MainAxisAlignment.spaceBetween, // Pushes value to the end
           children: [
-             Icon(icon, size: 16, color: colorScheme.secondary), // Consistent icon color
+             Icon(icon, size: 16, color: colorScheme.secondary),
              const SizedBox(width: 8),
-             Expanded( // Allow label to take space
-               child: Text(label, style: textTheme.bodyMedium),
-             ),
-             const SizedBox(width: 8), // Space before value
+             Text(label, style: textTheme.bodyMedium), 
+             const Spacer(), 
+             const SizedBox(width: 8), // Keep some space before value
              Text(
                value,
-               style: textTheme.bodyLarge?.copyWith( // Use slightly larger font for value
+               style: textTheme.bodyLarge?.copyWith(
                  fontWeight: FontWeight.bold,
                  color: valueColor ?? (highlight ? colorScheme.primary : null),
                ),
+               textAlign: TextAlign.end, // Ensure value text aligns right if it wraps
              ),
           ],
         ),
@@ -467,52 +507,59 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      // color: Theme.of(context).colorScheme.surfaceVariant, // Optional filled style
       child: Padding(
         padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: isSmallScreen ? 12.0 : 16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('实时数据', style: textTheme.titleMedium?.copyWith(color: colorScheme.primary)),
-            const Divider(height: 16), // Add spacing around divider
-            buildDataRow(
-              Icons.volume_up_outlined, // More specific icon
-              '噪声 (dB):',
-              data?.noiseDb.toStringAsFixed(1) ?? '--',
-              valueColor: data != null && data.noiseDb > 75 ? colorScheme.error : null, // Use theme error color
-              highlight: data != null && data.noiseDb > 60, // Highlight if moderately high
-            ),
-            buildDataRow(
-               Icons.thermostat_outlined,
-              '温度 (°C):',
-              data?.temperature.toStringAsFixed(1) ?? '--',
-              valueColor: data != null && data.temperature > 35 ? colorScheme.error : (data != null && data.temperature < 10 ? Colors.blue.shade300 : null),
-              highlight: data != null && (data.temperature > 30 || data.temperature < 15),
-            ),
-            buildDataRow(
-              Icons.water_drop_outlined, // Icon for humidity
-              '湿度 (%):',
-              data?.humidity.toStringAsFixed(1) ?? '--',
-              highlight: data != null && (data.humidity > 70 || data.humidity < 30),
-            ),
-            buildDataRow(
-              Icons.lightbulb_outlined, // Icon for light
-              '光照 (lux):',
-              data?.lightIntensity.toStringAsFixed(1) ?? '--',
-            ),
-            const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end, // Align time to the right
-              children: [
-                Icon(Icons.access_time, size: 12, color: colorScheme.outline),
-                const SizedBox(width: 4),
-                Text(
-                  data != null ? TimeOfDay.fromDateTime(data.timestamp).format(context) : '--:--',
-                  style: textTheme.bodySmall?.copyWith(color: colorScheme.outline),
-                ),
-              ],
-            ),
-          ],
+        child: Center(
+          child: Container(
+             constraints: const BoxConstraints(
+               maxWidth: 400, // Limit the maximum width of the content area
+             ),
+             child: Column(
+               crossAxisAlignment: CrossAxisAlignment.start,
+               mainAxisSize: MainAxisSize.min, // Make column take minimum vertical space
+               children: [
+                 Text('实时数据', style: textTheme.titleMedium?.copyWith(color: colorScheme.primary)),
+                 const Divider(height: 16),
+                 buildDataRow(
+                   Icons.volume_up_outlined,
+                   '噪声 (dB):',
+                   data?.noiseDb.toStringAsFixed(1) ?? '--',
+                   valueColor: data != null && data.noiseDb > 75 ? colorScheme.error : null,
+                   highlight: data != null && data.noiseDb > 60,
+                 ),
+                 buildDataRow(
+                    Icons.thermostat_outlined,
+                   '温度 (°C):',
+                   data?.temperature.toStringAsFixed(1) ?? '--',
+                   valueColor: data != null && data.temperature > 35 ? colorScheme.error : (data != null && data.temperature < 10 ? Colors.blue.shade300 : null),
+                   highlight: data != null && (data.temperature > 30 || data.temperature < 15),
+                 ),
+                 buildDataRow(
+                   Icons.water_drop_outlined,
+                   '湿度 (%):',
+                   data?.humidity.toStringAsFixed(1) ?? '--',
+                   highlight: data != null && (data.humidity > 70 || data.humidity < 30),
+                 ),
+                 buildDataRow(
+                   Icons.lightbulb_outlined,
+                   '光照 (lux):',
+                   data?.lightIntensity.toStringAsFixed(1) ?? '--',
+                 ),
+                 const SizedBox(height: 8),
+                 Row(
+                   mainAxisAlignment: MainAxisAlignment.end,
+                   children: [
+                     Icon(Icons.access_time, size: 12, color: colorScheme.outline),
+                     const SizedBox(width: 4),
+                     Text(
+                       data != null ? TimeOfDay.fromDateTime(data.timestamp).format(context) : '--:--',
+                       style: textTheme.bodySmall?.copyWith(color: colorScheme.outline),
+                     ),
+                   ],
+                 ),
+               ],
+             ),
+          ),
         ),
       ),
     );
