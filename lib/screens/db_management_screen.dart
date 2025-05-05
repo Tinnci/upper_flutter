@@ -55,20 +55,22 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
   }
 
   Future<void> _loadData({String? startDate, String? endDate}) async {
-    setState(() {
-      _isLoading = true;
-    });
-    // Use context before async gap
+    if (!mounted) return; // Check mounted at the beginning
+    setState(() { _isLoading = true; });
     final appState = Provider.of<AppState>(context, listen: false);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
 
     try {
+      List<SensorData> result;
       if (startDate != null || endDate != null) {
-        _data = await appState.searchDbReadings(startDate: startDate, endDate: endDate);
+        result = await appState.searchDbReadings(startDate: startDate, endDate: endDate);
       } else {
         // Default load latest 1000 records
-        _data = await appState.getAllDbReadings(limit: 1000);
+        result = await appState.getAllDbReadings(limit: 1000);
       }
+       if (mounted) { // Check mounted before setState
+         setState(() { _data = result; });
+       }
     } catch (e) {
       // print("Error loading database data: $e"); // Use logger (Corrected from debugPrint)
       // Check if the widget is still mounted before showing SnackBar
@@ -93,7 +95,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
       firstDate: DateTime(2000),
       lastDate: DateTime(2101),
     );
-    if (pickedDate != null) {
+    if (pickedDate != null && mounted) {
       // Use context before async gap
       final initialTime = TimeOfDay.now();
       // Check mounted after async gap
@@ -112,7 +114,9 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
         );
         // Use seconds as 00
         final finalDateTime = DateTime(combined.year, combined.month, combined.day, combined.hour, combined.minute, 0);
-        controller.text = _dateFormat.format(finalDateTime);
+        if (mounted) { // Check mounted before setting controller text
+            controller.text = _dateFormat.format(finalDateTime);
+        }
       }
     }
   }
@@ -130,6 +134,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
   // --- Database Management Actions ---
 
   Future<void> _clearAllData() async {
+    if (!mounted) return;
     final appState = Provider.of<AppState>(context, listen: false);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
@@ -141,7 +146,14 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
         content: const Text('确定要删除所有数据吗？此操作不可恢复！'),
         actions: [
           TextButton(onPressed: () => navigator.pop(false), child: const Text('取消')),
-          TextButton(onPressed: () => navigator.pop(true), child: const Text('删除')),
+          // Use FilledButton for destructive confirmation
+          FilledButton( 
+            onPressed: () => navigator.pop(true), 
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('确认删除'),
+          ),
         ],
       ),
     );
@@ -157,6 +169,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
   }
 
   Future<void> _deleteOldData() async {
+    if (!mounted) return;
     final appState = Provider.of<AppState>(context, listen: false);
     final scaffoldMessenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);
@@ -176,7 +189,14 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
         content: Text('确定要删除 $days 天前的数据吗？此操作不可恢复！'),
         actions: [
           TextButton(onPressed: () => navigator.pop(false), child: const Text('取消')),
-          TextButton(onPressed: () => navigator.pop(true), child: const Text('删除')),
+          // Use FilledButton for destructive confirmation
+          FilledButton(
+            onPressed: () => navigator.pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('确认删除'),
+          ),
         ],
       ),
     );
@@ -209,6 +229,9 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Determine if the screen is narrow
+    final isSmallScreen = MediaQuery.of(context).size.width < 600;
+
     // Wrap with Actions widget
     return Actions(
       actions: <Type, Action<Intent>>{
@@ -227,25 +250,30 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
                  tooltip: '刷新',
                ),
                IconButton(
-                 icon: const Icon(Icons.download),
+                 icon: const Icon(Icons.download_outlined), // Outlined icon
                  onPressed: _isLoading || _data.isEmpty ? null : _exportCsv,
                  tooltip: '导出 CSV (Ctrl+E)',
                ),
              ],
            ),
-           body: Column(
-             children: [
-               _buildFilterSection(context),
-               _buildManagementSection(context), // Add management buttons section
-               const Divider(),
-               Expanded(
-                 child: _isLoading
-                     ? const Center(child: CircularProgressIndicator())
-                     : _data.isEmpty
-                         ? const Center(child: Text('没有数据'))
-                         : _buildDataTable(),
-               ),
-             ],
+           body: Padding( // Add padding around the body content
+             padding: EdgeInsets.all(isSmallScreen ? 8.0 : 16.0),
+             child: Column(
+               children: [
+                 _buildFilterSection(context),
+                 _buildManagementSection(context), // Add management buttons section
+                 const Divider(height: 24), // Add more space around divider
+                 Expanded(
+                   child: _isLoading
+                       ? const Center(child: CircularProgressIndicator())
+                       : _data.isEmpty
+                           ? Center(
+                              child: Text('没有数据', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline))
+                            )
+                           : _buildDataTable(),
+                 ),
+               ],
+             ),
            ),
          ),
       ),
@@ -253,59 +281,66 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
   }
 
   Widget _buildFilterSection(BuildContext context) {
+    final bool isSmallScreen = MediaQuery.of(context).size.width < 600;
     return Padding(
-      padding: const EdgeInsets.all(8.0),
+      padding: const EdgeInsets.symmetric(vertical: 8.0), // Add vertical padding
       child: Wrap(
-        spacing: 8.0,
-        runSpacing: 8.0,
+        spacing: 12.0, // Consistent spacing
+        runSpacing: 12.0,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
-          SizedBox(
-            width: 200,
+          ConstrainedBox( // Use ConstrainedBox for text fields
+            constraints: BoxConstraints(maxWidth: isSmallScreen ? 150 : 200),
             child: TextField(
               controller: _startDateController,
               decoration: InputDecoration(
                 labelText: '起始日期',
-                hintText: 'YYYY-MM-DD HH:MM:SS',
+                hintText: '选择日期时间',
+                isDense: true,
                 suffixIcon: IconButton(
-                  icon: const Icon(Icons.calendar_today),
+                  icon: const Icon(Icons.calendar_today, size: 18),
                   onPressed: () => _selectDateTime(context, _startDateController),
+                  tooltip: '选择起始日期',
                 ),
               ),
               readOnly: true,
             ),
           ),
-          SizedBox(
-            width: 200,
-            child: TextField(
+          ConstrainedBox(
+             constraints: BoxConstraints(maxWidth: isSmallScreen ? 150 : 200),
+             child: TextField(
               controller: _endDateController,
               decoration: InputDecoration(
                 labelText: '结束日期',
-                hintText: 'YYYY-MM-DD HH:MM:SS',
+                hintText: '选择日期时间',
+                isDense: true,
                  suffixIcon: IconButton(
-                   icon: const Icon(Icons.calendar_today),
+                   icon: const Icon(Icons.calendar_today, size: 18),
                    onPressed: () => _selectDateTime(context, _endDateController),
+                   tooltip: '选择结束日期',
                  ),
               ),
               readOnly: true,
             ),
           ),
-          ElevatedButton(
+          // Use FilledButton.tonal for search
+          FilledButton.tonalIcon( 
             onPressed: _isLoading ? null : () {
               _loadData(
                 startDate: _startDateController.text.isNotEmpty ? _startDateController.text : null,
                 endDate: _endDateController.text.isNotEmpty ? _endDateController.text : null,
               );
             },
-            child: const Text('搜索'),
+            icon: const Icon(Icons.search, size: 18),
+            label: const Text('搜索'),
           ),
-           ElevatedButton(
+          // Use TextButton for less prominent action
+           TextButton( 
              onPressed: _isLoading ? null : () {
                _startDateController.clear();
                _endDateController.clear();
                _loadData(); // Load default (latest 1000) after clearing
              },
-             style: ElevatedButton.styleFrom(backgroundColor: Colors.grey),
              child: const Text('清除条件'),
            ),
         ],
@@ -316,34 +351,51 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
   // New section for management buttons
   Widget _buildManagementSection(BuildContext context) {
      return Padding(
-       padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+       padding: const EdgeInsets.symmetric(vertical: 8.0),
        child: Wrap(
-         spacing: 8.0,
-         runSpacing: 8.0,
+         spacing: 12.0,
+         runSpacing: 12.0,
          crossAxisAlignment: WrapCrossAlignment.center,
          children: [
-            ElevatedButton.icon(
+            // Use FilledButton + error color for dangerous action
+            FilledButton.icon(
               onPressed: _isLoading ? null : _clearAllData,
-              icon: const Icon(Icons.delete_forever),
-              label: const Text('删除所有数据'),
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+              icon: const Icon(Icons.delete_sweep_outlined, size: 18), // Different icon
+              label: const Text('清空所有'),
+              style: FilledButton.styleFrom(
+                 backgroundColor: Theme.of(context).colorScheme.errorContainer,
+                 foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
+              ),
             ),
-            const Text("删除"),
-             SizedBox(
-               width: 60,
-               child: TextField(
-                 controller: _daysController,
-                 decoration: const InputDecoration(
-                   hintText: '天数',
-                 ),
-                 keyboardType: TextInputType.number,
-               ),
+             const SizedBox(width: 16), // Add some spacing
+             // Section for deleting old data
+             Row( // Use Row for better alignment
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                   const Text("删除"),
+                   const SizedBox(width: 8),
+                   SizedBox(
+                     width: 60,
+                     child: TextField(
+                       controller: _daysController,
+                       decoration: const InputDecoration(
+                         hintText: '天数',
+                         isDense: true,
+                       ),
+                       keyboardType: TextInputType.number,
+                       textAlign: TextAlign.center,
+                     ),
+                   ),
+                   const SizedBox(width: 8),
+                   const Text("天前的数据"),
+                   const SizedBox(width: 12),
+                   // Use OutlinedButton for this action
+                   OutlinedButton(
+                     onPressed: _isLoading ? null : _deleteOldData,
+                     child: const Text('执行'),
+                   ),
+                ]
              ),
-            const Text("天前的数据"),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _deleteOldData,
-              child: const Text('执行删除'),
-            ),
          ],
        ),
      );
@@ -351,33 +403,63 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
 
 
   Widget _buildDataTable() {
-    // Consider PaginatedDataTable for large datasets
-    return SingleChildScrollView(
-       scrollDirection: Axis.vertical,
-       child: SingleChildScrollView(
-         scrollDirection: Axis.horizontal,
-         child: DataTable(
-           columnSpacing: 15.0,
-           columns: const [
-             DataColumn(label: Text('ID')),
-             DataColumn(label: Text('时间戳')),
-             DataColumn(label: Text('噪声(dB)')),
-             DataColumn(label: Text('温度(°C)')),
-             DataColumn(label: Text('湿度(%)')),
-             DataColumn(label: Text('光照(lux)')),
-           ],
-           rows: _data.map((item) => DataRow(
-             cells: [
-               DataCell(Text(item.id?.toString() ?? '')),
-               DataCell(Text(_dateFormat.format(item.timestamp))),
-               DataCell(Text(item.noiseDb.toStringAsFixed(1))),
-               DataCell(Text(item.temperature.toStringAsFixed(1))),
-               DataCell(Text(item.humidity.toStringAsFixed(1))),
-               DataCell(Text(item.lightIntensity.toStringAsFixed(1))),
-             ],
-           )).toList(),
-         ),
-       ),
+    final textTheme = Theme.of(context).textTheme;
+    // Use PaginatedDataTable for better handling of large datasets
+    return PaginatedDataTable(
+       // header: const Text('传感器数据记录'), // Optional header
+       rowsPerPage: 15, // Adjust number of rows per page
+       showCheckboxColumn: false, // Don't need checkboxes usually
+       columns: [ // Define columns explicitly
+         const DataColumn(label: Text('ID'), numeric: true),
+         const DataColumn(label: Text('时间戳')),
+         DataColumn(label: Text('噪声(${'\u{dB}'})'), numeric: true), // Use dB symbol
+         DataColumn(label: Text('温度(${'\u{00B0}'}C)'), numeric: true), // Use degree symbol
+         DataColumn(label: Text('湿度(%)'), numeric: true),
+         DataColumn(label: Text('光照(lx)'), numeric: true), // Use lx symbol
+       ],
+       source: _SensorDataSource(data: _data, dateFormat: _dateFormat, context: context),
+       columnSpacing: 20, // Adjust spacing
+       // horizontalMargin: 10,
+       dataRowMinHeight: 40,
+       dataRowMaxHeight: 48, // Adjust row height
     );
   }
+}
+
+// --- DataTableSource for PaginatedDataTable ---
+class _SensorDataSource extends DataTableSource {
+  final List<SensorData> data;
+  final DateFormat dateFormat;
+  final BuildContext context; // Needed for theme access
+
+  _SensorDataSource({required this.data, required this.dateFormat, required this.context});
+
+  @override
+  DataRow? getRow(int index) {
+    if (index >= data.length) {
+      return null;
+    }
+    final item = data[index];
+    final textStyle = Theme.of(context).textTheme.bodyMedium; // Use theme text style
+
+    return DataRow(
+      cells: [
+        DataCell(Text(item.id?.toString() ?? '', style: textStyle)),
+        DataCell(Text(dateFormat.format(item.timestamp), style: textStyle)),
+        DataCell(Text(item.noiseDb.toStringAsFixed(1), style: textStyle)),
+        DataCell(Text(item.temperature.toStringAsFixed(1), style: textStyle)),
+        DataCell(Text(item.humidity.toStringAsFixed(1), style: textStyle)),
+        DataCell(Text(item.lightIntensity.toStringAsFixed(1), style: textStyle)),
+      ],
+    );
+  }
+
+  @override
+  bool get isRowCountApproximate => false;
+
+  @override
+  int get rowCount => data.length;
+
+  @override
+  int get selectedRowCount => 0; // No selection
 }
