@@ -17,18 +17,6 @@ class AppSettings {
   /// 图表显示的数据点数量
   final int chartDataPoints;
   
-  /// 是否显示噪音数据
-  final bool showNoiseData;
-  
-  /// 是否显示温度数据
-  final bool showTemperatureData;
-  
-  /// 是否显示湿度数据
-  final bool showHumidityData;
-  
-  /// 是否显示光照数据
-  final bool showLightData;
-  
   /// 默认IP地址
   final String defaultIpAddress;
   
@@ -42,28 +30,20 @@ class AppSettings {
     this.autoConnect = false,
     this.useDynamicColor = true,
     this.chartDataPoints = 60,
-    this.showNoiseData = true,
-    this.showTemperatureData = true,
-    this.showHumidityData = true,
-    this.showLightData = true,
     this.defaultIpAddress = "192.168.1.100",
-    this.defaultPort = "8266",
+    this.defaultPort = "8888",
   });
 
   /// 从JSON创建设置对象
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
-      themeMode: ThemeMode.values[json['themeMode'] ?? 0],
+      themeMode: ThemeMode.values[json['themeMode'] ?? ThemeMode.system.index],
       dataRefreshInterval: json['dataRefreshInterval'] ?? 2,
       autoConnect: json['autoConnect'] ?? false,
       useDynamicColor: json['useDynamicColor'] ?? true,
       chartDataPoints: json['chartDataPoints'] ?? 60,
-      showNoiseData: json['showNoiseData'] ?? true,
-      showTemperatureData: json['showTemperatureData'] ?? true,
-      showHumidityData: json['showHumidityData'] ?? true,
-      showLightData: json['showLightData'] ?? true,
       defaultIpAddress: json['defaultIpAddress'] ?? "192.168.1.100",
-      defaultPort: json['defaultPort'] ?? "8266",
+      defaultPort: json['defaultPort'] ?? "8888",
     );
   }
 
@@ -75,10 +55,6 @@ class AppSettings {
       'autoConnect': autoConnect,
       'useDynamicColor': useDynamicColor,
       'chartDataPoints': chartDataPoints,
-      'showNoiseData': showNoiseData,
-      'showTemperatureData': showTemperatureData,
-      'showHumidityData': showHumidityData,
-      'showLightData': showLightData,
       'defaultIpAddress': defaultIpAddress,
       'defaultPort': defaultPort,
     };
@@ -91,10 +67,6 @@ class AppSettings {
     bool? autoConnect,
     bool? useDynamicColor,
     int? chartDataPoints,
-    bool? showNoiseData,
-    bool? showTemperatureData,
-    bool? showHumidityData,
-    bool? showLightData,
     String? defaultIpAddress,
     String? defaultPort,
   }) {
@@ -104,10 +76,6 @@ class AppSettings {
       autoConnect: autoConnect ?? this.autoConnect,
       useDynamicColor: useDynamicColor ?? this.useDynamicColor,
       chartDataPoints: chartDataPoints ?? this.chartDataPoints,
-      showNoiseData: showNoiseData ?? this.showNoiseData,
-      showTemperatureData: showTemperatureData ?? this.showTemperatureData,
-      showHumidityData: showHumidityData ?? this.showHumidityData,
-      showLightData: showLightData ?? this.showLightData,
       defaultIpAddress: defaultIpAddress ?? this.defaultIpAddress,
       defaultPort: defaultPort ?? this.defaultPort,
     );

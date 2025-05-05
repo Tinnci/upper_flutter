@@ -8,6 +8,7 @@ import 'settings_screen.dart';
 import '../widgets/charts_widget.dart'; // 导入 SingleChartCard
 import 'package:fl_chart/fl_chart.dart'; // 需要 FlSpot
 import '../models/sensor_data.dart'; // 需要 SensorData
+import 'package:flutter/scheduler.dart'; // 导入 TickerProviderStateMixin
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -16,31 +17,46 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   final TextEditingController _ipController = TextEditingController();
   final TextEditingController _portController = TextEditingController();
-  final TextEditingController _daysController = TextEditingController(text: "7"); // 删除天数控制器
   int _selectedIndex = 0; // 当前选中的导航项
+
+  // --- 新增 Ticker ---
+  Ticker? _ticker;
 
   @override
   void initState() {
     super.initState();
-    // 初始化控制器文本为 AppState 中的值
+    // 初始化控制器文本为 AppState settings 中的值
     final appState = Provider.of<AppState>(context, listen: false);
-    _ipController.text = appState.ipAddress;
-    _portController.text = appState.port;
+    _ipController.text = appState.settings.defaultIpAddress; // 使用 settings
+    _portController.text = appState.settings.defaultPort; // 使用 settings
 
     // 在 initState 完成后加载初始图表数据
     WidgetsBinding.instance.addPostFrameCallback((_) {
        appState.loadLatestReadingsForChart();
     });
+
+    // --- 创建并启动 Ticker ---
+    // Ticker 会定期触发 setState，强制图表重绘以更新时间窗口
+    _ticker = createTicker((_) {
+      // 只有在主页且有图表数据时才触发重绘
+      if (_selectedIndex == 0 && appState.latestReadings.isNotEmpty && mounted) {
+        setState(() {
+          // 不需要在这里做任何事，只需要触发 setState 
+          // 让 _buildChartSection 重新计算 minX/maxX
+        });
+      }
+    });
+    _ticker?.start(); // 启动 Ticker
   }
 
   @override
   void dispose() {
     _ipController.dispose();
     _portController.dispose();
-    _daysController.dispose();
+    _ticker?.dispose(); // --- 销毁 Ticker ---
     super.dispose();
   }
 
@@ -193,8 +209,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   _buildControlSection(context, appState),
                   const SizedBox(height: 16),
-                  _buildDataManagementSection(context, appState),
-                  const SizedBox(height: 16),
                   _buildRealtimeDataSection(context, appState),
                   const SizedBox(height: 16),
                   _buildChartSection(context, appState),
@@ -278,7 +292,8 @@ class _HomeScreenState extends State<HomeScreen> {
       required String hint,
       bool enabled = true,
       TextInputType? keyboardType,
-      Function(String)? onChanged,
+      // 修改 onChanged 回调，使其更新 AppState 的设置
+      required Function(String) onSettingChanged, 
     }) {
       if (Platform.isIOS) {
         return SizedBox(
@@ -298,7 +313,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             enabled: enabled,
             keyboardType: keyboardType,
-            onChanged: onChanged,
+            onChanged: onSettingChanged, // 使用传入的回调
           ),
         );
       } else {
@@ -312,7 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
             enabled: enabled,
             keyboardType: keyboardType,
-            onChanged: onChanged,
+            onChanged: onSettingChanged, // 使用传入的回调
           ),
         );
       }
@@ -334,7 +349,8 @@ class _HomeScreenState extends State<HomeScreen> {
               label: 'IP 地址',
               hint: '例如: 192.168.1.100',
               enabled: !appState.isConnected && !appState.isConnecting && !appState.isScanning,
-              onChanged: (value) => appState.ipAddress = value,
+              // 直接更新 AppState 设置
+              onSettingChanged: (value) => appState.updateSetting('defaultIpAddress', value), 
             ),
             // 端口输入
             buildAdaptiveTextField(
@@ -343,7 +359,8 @@ class _HomeScreenState extends State<HomeScreen> {
               hint: '例如: 8266',
               keyboardType: TextInputType.number,
               enabled: !appState.isConnected && !appState.isConnecting && !appState.isScanning,
-              onChanged: (value) => appState.port = value,
+              // 直接更新 AppState 设置
+              onSettingChanged: (value) => appState.updateSetting('defaultPort', value), 
             ),
             // 扫描按钮
             _buildAdaptiveButton(
@@ -368,286 +385,101 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // 构建数据管理区域
-  Widget _buildDataManagementSection(BuildContext context, AppState appState) {
-    // 创建平台自适应的对话框
-    Future<bool?> showAdaptiveDialog({
-      required String title,
-      required String content,
-      required String cancelText,
-      required String confirmText,
-    }) async {
-      if (Platform.isIOS) {
-        return showCupertinoDialog<bool>(
-          context: context,
-          builder: (context) => CupertinoAlertDialog(
-            title: Text(title),
-            content: Text(content),
-            actions: [
-              CupertinoDialogAction(
-                isDefaultAction: true,
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(cancelText),
-              ),
-              CupertinoDialogAction(
-                isDestructiveAction: true,
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(confirmText),
-              ),
-            ],
-          ),
-        );
-      } else {
-        return showDialog<bool>(
-          context: context,
-          builder: (context) => AlertDialog(
-            title: Text(title),
-            content: Text(content),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: Text(cancelText),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: Text(confirmText),
-              ),
-            ],
-          ),
-        );
-      }
-    }
-
-    // 创建平台自适应的数字输入框
-    Widget buildAdaptiveNumberField() {
-      if (Platform.isIOS) {
-        return SizedBox(
-          width: 60,
-          height: 36.0,
-          child: CupertinoTextField(
-            controller: _daysController,
-            placeholder: '天数',
-            keyboardType: TextInputType.number,
-            decoration: BoxDecoration(
-              border: Border.all(color: CupertinoColors.lightBackgroundGray),
-              borderRadius: BorderRadius.circular(8.0),
-              color: CupertinoColors.white,
-            ),
-            padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-          ),
-        );
-      } else {
-        return SizedBox(
-          width: 60,
-          child: TextField(
-            controller: _daysController,
-            decoration: const InputDecoration(
-              hintText: '天数',
-            ),
-            keyboardType: TextInputType.number,
-          ),
-        );
-      }
-    }
-
-    // 显示自适应通知
-    void showAdaptiveMessage(String message) {
-      if (Platform.isIOS) {
-        showCupertinoDialog(
-          context: context,
-          builder: (context) => CupertinoAlertDialog(
-            title: const Text('提示'),
-            content: Text(message),
-            actions: [
-              CupertinoDialogAction(
-                onPressed: () => Navigator.pop(context),
-                child: const Text('确定'),
-              ),
-            ],
-          ),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(message)),
-        );
-      }
-    }
-
-    return Card(
-      elevation: 2,
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Row(  // 使用 Row 替代 Wrap
-          mainAxisSize: MainAxisSize.min, // 让 Card 宽度适应内容
-          children: [
-            _buildAdaptiveButton(
-              label: '删除所有数据',
-              icon: Icons.delete_forever,
-              onPressed: () async {
-                final confirm = await showAdaptiveDialog(
-                  title: '确认删除',
-                  content: '确定要删除所有数据吗？此操作不可恢复！',
-                  cancelText: '取消',
-                  confirmText: '删除',
-                );
-                if (confirm == true) {
-                  await appState.clearAllDbData();
-                  if (!mounted) return;
-                  showAdaptiveMessage('所有数据已删除');
-                }
-              },
-              backgroundColor: Colors.orange,
-            ),
-            SizedBox(width: 24), // 增加按钮之间的间距
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text("删除"),
-                SizedBox(width: 8),
-                buildAdaptiveNumberField(),
-                SizedBox(width: 8),
-                const Text("天前的数据"),
-                SizedBox(width: 16),
-                _buildAdaptiveButton(
-                  label: '删除旧数据',
-                  icon: Icons.delete_outline,
-                  onPressed: () async {
-                    final days = int.tryParse(_daysController.text);
-                    if (days == null || days <= 0) {
-                      if (!mounted) return;
-                      showAdaptiveMessage('请输入有效的天数');
-                      return;
-                    }
-                    final confirm = await showAdaptiveDialog(
-                      title: '确认删除',
-                      content: '确定要删除 $days 天前的数据吗？此操作不可恢复！',
-                      cancelText: '取消',
-                      confirmText: '删除',
-                    );
-                    if (confirm == true) {
-                      await appState.deleteDbDataBefore(days);
-                      if (!mounted) return;
-                      showAdaptiveMessage('$days 天前的数据已删除');
-                    }
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-
   // 构建实时数据显示区域 - Material 3风格
   Widget _buildRealtimeDataSection(BuildContext context, AppState appState) {
     final data = appState.currentData;
     final colorScheme = Theme.of(context).colorScheme;
     final screenWidth = MediaQuery.of(context).size.width;
 
-    return Row(
-      children: [
-        Container(
-          constraints: BoxConstraints(
-            maxWidth: screenWidth / 3,
-          ),
-          child: Card(
-            elevation: 2,
-            child: Padding(
-              padding: EdgeInsets.symmetric(horizontal: 8.0, vertical: 6.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    // 将实时数据卡片放在一个 Container 中，方便限制宽度
+    Widget realtimeDataCard = Container(
+      constraints: BoxConstraints(
+        // 稍微调整宽度，给右侧可能的内容留空间，或让其自然适应
+        maxWidth: screenWidth * 0.4, // 例如，最多占 40% 宽度
+        minWidth: 180, // 设置一个最小宽度
+      ),
+      child: Card(
+        elevation: 2,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // 调整内边距
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min, // 让卡片高度适应内容
+            children: [
+              Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.sensors, color: colorScheme.primary, size: 14),
-                      SizedBox(width: 4),
-                      Text(
-                        '实时数据',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                    ],
-                  ),
-                  Divider(height: 8),
-                  Table(
-                    defaultVerticalAlignment: TableCellVerticalAlignment.middle,
-                    columnWidths: {
-                      0: FixedColumnWidth(80), // 增加第一列宽度以适应完整标签
-                      1: FlexColumnWidth(),
-                    },
-                    children: [
-                      _buildTableRow(
-                        '噪声(db):',
-                        data?.noiseDb?.toStringAsFixed(1) ?? '--',
-                        valueColor: data != null && data.noiseDb > 70 ? Colors.red : null
-                      ),
-                      _buildTableRow(
-                        '温度(℃):',
-                        data?.temperature?.toStringAsFixed(1) ?? '--',
-                        valueColor: data != null && data.temperature > 30 ? Colors.orange : null
-                      ),
-                      _buildTableRow('湿度(％):', data?.humidity.toStringAsFixed(1) ?? '--'),
-                      _buildTableRow('光照(lux):', data?.lightIntensity?.toStringAsFixed(1) ?? '--'),
-                    ],
-                  ),
-                  SizedBox(height: 4),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.access_time, size: 10, color: colorScheme.outline),
-                      SizedBox(width: 4),
-                      Text(
-                        data != null ? TimeOfDay.fromDateTime(data.timestamp).format(context) : '--',
-                        style: TextStyle(fontSize: 10, color: colorScheme.outline),
-                      ),
-                    ],
+                  Icon(Icons.sensors, color: colorScheme.primary, size: 16), // 调整图标大小
+                  const SizedBox(width: 6),
+                  Text(
+                    '实时数据',
+                    // 使用更合适的文本样式
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: colorScheme.primary,
+                          fontWeight: FontWeight.bold,
+                        ),
                   ),
                 ],
               ),
-            ),
+              const Divider(height: 10),
+              Table(
+                defaultVerticalAlignment: TableCellVerticalAlignment.middle,
+                columnWidths: const {
+                  // 调整列宽比例
+                  0: IntrinsicColumnWidth(), // 根据内容自适应
+                  1: FixedColumnWidth(50), // 固定值列宽
+                },
+                children: [
+                  _buildTableRow(
+                    '噪声(dB):',
+                    data?.noiseDb.toStringAsFixed(1) ?? '--',
+                    valueColor: data != null && data.noiseDb > 70 ? Colors.red : null
+                  ),
+                  _buildTableRow(
+                    '温度(℃):',
+                    data?.temperature.toStringAsFixed(1) ?? '--',
+                    valueColor: data != null && data.temperature > 30 ? Colors.orange : null
+                  ),
+                  _buildTableRow('湿度(％):', data?.humidity.toStringAsFixed(1) ?? '--'),
+                  _buildTableRow('光照(lux):', data?.lightIntensity.toStringAsFixed(1) ?? '--'),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.access_time, size: 12, color: colorScheme.outline), // 调整图标大小
+                  const SizedBox(width: 4),
+                  Text(
+                    data != null ? TimeOfDay.fromDateTime(data.timestamp).format(context) : '--:--',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(color: colorScheme.outline), // 使用主题样式
+                  ),
+                ],
+              ),
+            ],
           ),
         ),
-        SizedBox(width: 8), // 添加间距
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '第一小组:施天池，李宋琦，施昊，宋施喆，朱奕澄',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                    SizedBox(height: 4), // 添加垂直间距
-                    Text(
-                      '指导老师：王旭智',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                  ],
-                ),
-                SizedBox(width: 16),
-                Image.asset(
-                  'assets/images/shu-logo.jpg',
-                  height: 100,  // 调整 logo 大小
-                  fit: BoxFit.contain,
-                ),
-              ],
-            ),
-          ],
-        ),
+      ),
+    );
+
+    // 返回只包含实时数据卡片的 Row
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start, // 顶部对齐
+      children: [
+        realtimeDataCard,
+        // 这里可以添加其他内容，或者让卡片居中/左对齐
+        // 如果需要间距: const SizedBox(width: 16),
+        // 移除硬编码的文本和 Logo
+        /* 
+        Expanded( // Use Expanded if you want the right side to take remaining space
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ... Removed hardcoded text and logo ...
+            ],
+          ),
+        ), 
+        */
       ],
     );
   }
@@ -697,6 +529,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final sensorDataList = appState.latestReadings;
     final colorScheme = Theme.of(context).colorScheme;
 
+    // --- 关键修改：计算固定的 60 秒时间窗口 ---
+    final now = DateTime.now().millisecondsSinceEpoch.toDouble();
+    // minX 设置为 60 秒前
+    final minTimestamp = now - 60000.0; 
+    // maxX 设置为当前时间 (或略晚一点点以包含最新数据)
+    final maxTimestamp = now + 1000.0; // 加一点buffer确保当前点可见
+
+    // 检查是否有数据
     if (sensorDataList.isEmpty) {
       return Card(
         elevation: 2,
@@ -740,14 +580,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final humiditySpots = _createSpots(sensorDataList, (data) => data.humidity);
     final lightSpots = _createSpots(sensorDataList, (data) => data.lightIntensity);
 
-    final minTimestamp = sensorDataList.first.timestamp.millisecondsSinceEpoch.toDouble();
-    final maxTimestamp = sensorDataList.last.timestamp.millisecondsSinceEpoch.toDouble();
-
+    // 创建图表卡片列表
     final chartCards = [
       SingleChartCard(
         title: '噪声 (dB)',
         spots: noiseSpots,
         color: Platform.isIOS ? CupertinoColors.systemRed : colorScheme.error,
+        // 传递计算好的固定时间窗口
         minX: minTimestamp,
         maxX: maxTimestamp,
       ),
@@ -755,6 +594,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: '温度 (°C)',
         spots: tempSpots,
         color: Platform.isIOS ? CupertinoColors.systemBlue : colorScheme.primary,
+        // 传递计算好的固定时间窗口
         minX: minTimestamp,
         maxX: maxTimestamp,
       ),
@@ -762,6 +602,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: '湿度 (%)',
         spots: humiditySpots,
         color: Platform.isIOS ? CupertinoColors.systemGreen : colorScheme.tertiary,
+        // 传递计算好的固定时间窗口
         minX: minTimestamp,
         maxX: maxTimestamp,
       ),
@@ -769,6 +610,7 @@ class _HomeScreenState extends State<HomeScreen> {
         title: '光照 (lux)',
         spots: lightSpots,
         color: Platform.isIOS ? CupertinoColors.systemOrange : colorScheme.secondary,
+        // 传递计算好的固定时间窗口
         minX: minTimestamp,
         maxX: maxTimestamp,
       ),
@@ -785,7 +627,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Icon(Icons.insert_chart_outlined, color: colorScheme.primary, size: 16),
                 const SizedBox(width: 6),
-                Text('历史数据图表', 
+                Text('最近 60 秒历史数据', // <<< 更新标题文本
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontSize: 14,
                   ),

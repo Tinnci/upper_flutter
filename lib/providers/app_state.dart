@@ -47,9 +47,6 @@ class AppState extends ChangeNotifier {
   // 初始化设置
   Future<void> _initSettings() async {
     _settings = await _settingsService.loadSettings();
-    // 应用设置到相关属性
-    _ipAddress = _settings.defaultIpAddress;
-    _port = _settings.defaultPort;
     notifyListeners();
   }
 
@@ -85,19 +82,6 @@ class AppState extends ChangeNotifier {
   String get statusMessage => _statusMessage;
 
   // --- 输入参数 ---
-  String _ipAddress = "192.168.1.100"; // 默认 IP
-  String get ipAddress => _ipAddress;
-  set ipAddress(String value) {
-    _ipAddress = value;
-    notifyListeners(); // 如果需要在输入时更新 UI，则通知
-  }
-
-  String _port = "8266"; // 默认端口
-  String get port => _port;
-  set port(String value) {
-    _port = value;
-    notifyListeners();
-  }
 
   // --- 设备扫描 ---
   bool _isScanning = false;
@@ -141,9 +125,9 @@ class AppState extends ChangeNotifier {
   // 连接逻辑
   Future<void> _connect() async {
     _isConnecting = true;
-    _updateStatus("正在连接到 $_ipAddress:$_port...");
+    _updateStatus("正在连接到 ${_settings.defaultIpAddress}:${_settings.defaultPort}...");
 
-    final portInt = int.tryParse(_port);
+    final portInt = int.tryParse(_settings.defaultPort);
     if (portInt == null) {
       _updateStatus("端口号无效");
       _isConnecting = false;
@@ -151,12 +135,12 @@ class AppState extends ChangeNotifier {
       return;
     }
 
-    final success = await _commService.connect(_ipAddress, portInt);
+    final success = await _commService.connect(_settings.defaultIpAddress, portInt);
     _isConnecting = false;
 
     if (success) {
       _isConnected = true;
-      _updateStatus("已连接到 $_ipAddress:$_port");
+      _updateStatus("已连接到 ${_settings.defaultIpAddress}:${_settings.defaultPort}");
       _consecutiveReadFailures = 0; // 连接成功，重置失败计数器
       _startDataFetching(); // 开始定时获取数据
       await loadLatestReadingsForChart(limit: chartDataPoints); // 加载初始图表数据到缓冲区
@@ -210,7 +194,8 @@ class AppState extends ChangeNotifier {
          // 使用当前时间戳创建 SensorData 对象
          final newData = SensorData(
              timestamp: DateTime.now(), // 使用接收数据的时间
-             noiseIMs: dataMap['noiseIMs'] ?? dataMap['noise_db'] ?? 0.0,
+             // 使用 noiseDb 并从映射中获取 'noiseDb'
+             noiseDb: dataMap['noiseDb'] ?? 0.0, 
              temperature: dataMap['temperature'] ?? 0.0,
              humidity: dataMap['humidity'] ?? 0.0,
              lightIntensity: dataMap['light_intensity'] ?? 0.0,
@@ -280,9 +265,8 @@ class AppState extends ChangeNotifier {
 
     try {
       // 注意：这里的扫描可能不准确或耗时较长
-      _availableDevices = await _commService.scanNetworkDevices(prefix, port: int.tryParse(_port) ?? 8266);
+      _availableDevices = await _commService.scanNetworkDevices(prefix, port: int.tryParse(_settings.defaultPort) ?? 8266);
       if (_availableDevices.isNotEmpty) {
-        _ipAddress = _availableDevices[0]; // 默认选中第一个找到的
         _updateStatus("找到 ${_availableDevices.length} 个设备");
       } else {
         _updateStatus("未找到设备");
@@ -329,6 +313,34 @@ class AppState extends ChangeNotifier {
        await loadLatestReadingsForChart(limit: chartDataPoints); // 重新加载图表数据到缓冲区
       notifyListeners();
       _updateStatus("$days 天前的数据已删除");
+  }
+
+  // 新增：删除数据库文件的方法
+  Future<bool> deleteDatabase() async {
+    // 最好在删除前断开连接，避免正在写入
+    if (_isConnected) {
+       await _disconnect(); // 调用已有的断开连接方法
+       _updateStatus("连接已断开 (准备删除数据库)");
+    } else {
+       _updateStatus("准备删除数据库");
+    }
+
+    // 清空内存中的数据
+    _currentData = null;
+    _chartDataBuffer = [];
+    notifyListeners(); // 更新UI，清除旧数据
+
+    // 调用 DatabaseHelper 删除文件
+    final success = await _dbHelper.deleteDatabaseFile();
+
+    if (success) {
+      _updateStatus("数据库文件已删除。请重启应用。");
+    } else {
+      _updateStatus("删除数据库文件失败或文件不存在。");
+    }
+    // 再次通知，更新状态消息
+    notifyListeners(); 
+    return success;
   }
 
 }

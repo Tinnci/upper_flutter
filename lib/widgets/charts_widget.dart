@@ -40,31 +40,48 @@ class SingleChartCard extends StatelessWidget {
   // 构建单个图表的 Card
   // 构建单个图表的 Card (保持不变，但现在是 build 方法调用的核心)
   Widget _buildChartCard(String title, List<FlSpot> spots, Color color, double minX, double maxX) {
-     // 动态计算 Y 轴范围，增加一些边距
-     double minY = double.infinity;
-     double maxY = double.negativeInfinity;
+     // 动态计算 Y 轴范围
+     double minY = 0; // Default min Y
+     double maxY = 10; // Default max Y
      if (spots.isNotEmpty) {
        minY = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b);
        maxY = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
-       // 添加 10% 的边距，避免数据点贴边
+       // 添加边距
        final padding = (maxY - minY) * 0.1;
-       minY -= padding;
-       maxY += padding;
-       // 如果最小值和最大值接近，设置一个默认范围
-       if ((maxY - minY) < 1) {
-         minY -= 5;
-         maxY += 5;
-       }
+       // 如果 maxY 和 minY 很接近 (例如只有一个点)，padding 可能为0或很小
+       // 确保至少有一些 padding
+       final effectivePadding = padding < 1.0 ? 5.0 : padding; 
+       minY -= effectivePadding;
+       maxY += effectivePadding;
+
        // 确保 minY 不会小于 0 (如果适用)
        if (title.contains('dB') || title.contains('%') || title.contains('lux')) {
           minY = minY < 0 ? 0 : minY;
        }
-     } else {
-       // 没有数据时的默认范围
-       minY = 0;
-       maxY = 10;
+       // 再次检查，防止 minY >= maxY
+       if (minY >= maxY) {
+          maxY = minY + 10; // Ensure maxY is always greater than minY
+       }
      }
 
+     // --- X 轴范围和间隔计算 ---
+     final verticalRange = maxX - minX; // 现在总是 60000 + 1000 = 61000 (约)
+
+     // 水平间隔 (Y 轴)
+     final horizontalRange = maxY - minY;
+     final safeHorizontalInterval = horizontalRange <= 0 ? 1.0 : horizontalRange / 5;
+     
+     // 垂直间隔 (X 轴) - 网格线
+     // 60秒内，每10秒画一条垂直线比较合适
+     const double verticalGridInterval = 10000.0; // 10 seconds
+     
+     // 底部标题间隔 - 每15秒显示一个标签
+     const double bottomTitleInterval = 15000.0; // 15 seconds
+
+     // --- 新增：过滤 spots ---
+     // 只保留 x 值 (时间戳) 在 minX 和 maxX 范围内的点
+     // 添加一点缓冲 (例如 1ms) 以确保边界点正确包含
+     final filteredSpots = spots.where((spot) => spot.x >= minX - 1 && spot.x <= maxX + 1).toList();
 
     return Card(
       elevation: 1,
@@ -81,14 +98,14 @@ class SingleChartCard extends StatelessWidget {
                 LineChartData(
                   minX: minX,
                   maxX: maxX,
-                  minY: minY,
+                  minY: minY, 
                   maxY: maxY,
                   gridData: FlGridData(
                     show: true,
                     drawVerticalLine: true,
-                    // Calculate intervals, ensuring they are positive
-                    horizontalInterval: ((maxY - minY) / 5) <= 0 ? 1.0 : (maxY - minY) / 5,
-                    verticalInterval: ((maxX - minX) / 5) <= 0 ? 1.0 : (maxX - minX) / 5,
+                    horizontalInterval: safeHorizontalInterval, 
+                    // 使用固定的垂直网格间隔
+                    verticalInterval: verticalGridInterval, 
                     getDrawingHorizontalLine: (value) {
                       return const FlLine(color: Colors.grey, strokeWidth: 0.5);
                     },
@@ -104,15 +121,26 @@ class SingleChartCard extends StatelessWidget {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 22,
-                        interval: (maxX - minX) / 4, // 调整底部标签密度
+                        // 使用固定的底部标题间隔
+                        interval: bottomTitleInterval, 
                         getTitlesWidget: (value, meta) {
-                          final timestamp = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-                          // 只显示时:分:秒
-                          return SideTitleWidget(
-                            axisSide: meta.axisSide,
-                            space: 4,
-                            child: Text(DateFormat('HH:mm:ss').format(timestamp), style: const TextStyle(fontSize: 10)),
-                          );
+                          // 仅当值在有效范围内时尝试格式化
+                          if (value >= minX && value <= maxX) {
+                             try {
+                               final timestamp = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+                               // --- 关键修改：只显示秒 ---
+                               final String secondText = DateFormat('ss').format(timestamp) + 's'; 
+                               return SideTitleWidget(
+                                 axisSide: meta.axisSide,
+                                 space: 4,
+                                 // 使用新的格式
+                                 child: Text(secondText, style: const TextStyle(fontSize: 10)), 
+                               );
+                             } catch (e) {
+                               return const SizedBox.shrink(); 
+                             }
+                          }
+                          return const SizedBox.shrink(); 
                         },
                       ),
                     ),
@@ -120,11 +148,13 @@ class SingleChartCard extends StatelessWidget {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 35, // 调整左侧标签空间
-                        // interval: (maxY - minY) / 5, // 自动计算间隔
                         getTitlesWidget: (value, meta) {
-                           // 只显示整数或一位小数
-                           String text = value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 1);
-                           return Text(text, style: const TextStyle(fontSize: 10));
+                           // 检查值是否在范围内，避免显示超出范围的标签
+                           if (value >= minY && value <= maxY) {
+                              String text = value.toStringAsFixed(value.truncateToDouble() == value ? 0 : 1);
+                              return Text(text, style: const TextStyle(fontSize: 10));
+                           }
+                           return const SizedBox.shrink(); // 值超出范围则不显示
                         },
                       ),
                     ),
@@ -132,38 +162,45 @@ class SingleChartCard extends StatelessWidget {
                   borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey)),
                   lineBarsData: [
                     LineChartBarData(
-                      spots: spots,
-                      isCurved: false, // 可以设为 true 使线条平滑
+                      spots: filteredSpots,
+                      isCurved: false,
                       color: color,
                       barWidth: 2,
                       isStrokeCapRound: true,
-                      dotData: const FlDotData(show: false), // 不显示数据点
+                      dotData: const FlDotData(show: false),
                       belowBarData: BarAreaData(show: false),
                     ),
                   ],
-                  // 交互效果
                   lineTouchData: LineTouchData(
                      enabled: true,
                      touchTooltipData: LineTouchTooltipData(
-                       getTooltipColor: (touchedSpot) => Colors.blueGrey.withAlpha((255 * 0.8).round()), // Use withAlpha instead of deprecated withOpacity
+                       getTooltipColor: (touchedSpot) => Colors.blueGrey.withAlpha(204), // Use integer alpha
                        getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
                          return touchedBarSpots.map((barSpot) {
                            final flSpot = barSpot;
-                           final timestamp = DateTime.fromMillisecondsSinceEpoch(flSpot.x.toInt());
-                           return LineTooltipItem(
-                             '${DateFormat('HH:mm:ss').format(timestamp)}\n',
-                             const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-                             children: <TextSpan>[
-                               TextSpan(
-                                 text: flSpot.y.toStringAsFixed(1), // 显示一位小数
-                                 style: TextStyle(
-                                   color: barSpot.bar.color ?? Colors.white,
-                                   fontWeight: FontWeight.w500,
-                                 ),
-                               ),
-                             ],
-                           );
-                         }).toList();
+                           // 添加检查确保 x 值有效
+                           if (flSpot.x.isFinite) {
+                              try {
+                                final timestamp = DateTime.fromMillisecondsSinceEpoch(flSpot.x.toInt());
+                                return LineTooltipItem(
+                                  '${DateFormat('HH:mm:ss').format(timestamp)}\n',
+                                  const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  children: <TextSpan>[
+                                    TextSpan(
+                                      text: flSpot.y.toStringAsFixed(1),
+                                      style: TextStyle(
+                                        color: barSpot.bar.color ?? Colors.white,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                  ],
+                                );
+                              } catch (e) {
+                                 return null; // Return null on error
+                              }
+                           }
+                           return null; // Return null if x is not finite
+                         }).whereType<LineTooltipItem>().toList(); // Filter out nulls
                        }
                      )
                   ),

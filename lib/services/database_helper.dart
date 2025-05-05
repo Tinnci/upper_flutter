@@ -4,6 +4,7 @@ import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:intl/intl.dart';
 import '../models/sensor_data.dart'; // 导入数据模型
+import 'dart:io'; // 导入 dart:io 用于文件操作
 
 class DatabaseHelper {
   static const _databaseName = "sensor_data.db";
@@ -13,7 +14,7 @@ class DatabaseHelper {
 
   static const columnId = 'id';
   static const columnTimestamp = 'timestamp';
-  static const columnNoiseIMs = 'noiseIMs';
+  static const columnNoiseDb = 'noiseDb';
   static const columnTemperature = 'temperature';
   static const columnHumidity = 'humidity';
   static const columnLightIntensity = 'light_intensity';
@@ -24,6 +25,9 @@ class DatabaseHelper {
 
   // 数据库实例
   static Database? _database;
+  // 存储数据库路径
+  static String? _databasePath; 
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
@@ -33,11 +37,22 @@ class DatabaseHelper {
   // 初始化数据库
   _initDatabase() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
-    final path = join(documentsDirectory.path, _databaseName);
-    debugPrint ("数据库路径: $path"); // Use logger
-    return await openDatabase(path,
+    // 保存路径
+    _databasePath = join(documentsDirectory.path, _databaseName); 
+    debugPrint ("数据库路径: $_databasePath"); // Use logger
+    return await openDatabase(_databasePath!,
         version: _databaseVersion,
         onCreate: _onCreate);
+  }
+
+  // 添加一个获取数据库路径的方法
+  Future<String> getDatabasePath() async {
+    if (_databasePath == null) {
+      // 如果路径还未初始化，则初始化它
+      final documentsDirectory = await getApplicationDocumentsDirectory();
+      _databasePath = join(documentsDirectory.path, _databaseName);
+    }
+    return _databasePath!;
   }
 
   // 创建表
@@ -46,7 +61,7 @@ class DatabaseHelper {
           CREATE TABLE $table (
             $columnId INTEGER PRIMARY KEY AUTOINCREMENT,
             $columnTimestamp TEXT NOT NULL,
-            $columnNoiseIMs REAL,
+            $columnNoiseDb REAL,
             $columnTemperature REAL,
             $columnHumidity REAL,
             $columnLightIntensity REAL
@@ -149,5 +164,37 @@ class DatabaseHelper {
       where: '$columnTimestamp < ?',
       whereArgs: [cutoffDateString],
     );
+  }
+
+  // 新增：关闭并删除数据库文件的方法
+  Future<bool> deleteDatabaseFile() async {
+    try {
+      // 确保数据库路径已获取
+      final path = await getDatabasePath(); 
+
+      // 关闭现有数据库连接（如果已打开）
+      if (_database != null && _database!.isOpen) {
+        await _database!.close();
+        _database = null; // 重置实例
+        debugPrint("数据库连接已关闭。");
+      } else {
+         debugPrint("数据库连接未打开或已关闭。");
+      }
+
+      // 删除文件
+      final file = File(path);
+      if (await file.exists()) {
+        await file.delete();
+        debugPrint("数据库文件已删除: $path");
+        _databasePath = null; // 清除缓存的路径
+        return true;
+      } else {
+        debugPrint("数据库文件不存在，无需删除: $path");
+        return false; // 文件不存在，不算成功删除
+      }
+    } catch (e) {
+      debugPrint("删除数据库文件时出错: $e");
+      return false;
+    }
   }
 }

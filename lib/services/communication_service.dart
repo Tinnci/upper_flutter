@@ -8,10 +8,10 @@ import 'package:network_info_plus/network_info_plus.dart';
 class CommunicationService {
   Socket? _socket;
   bool _isConnected = false;
-  bool _hasReceivedConnected = false; // 新增标志
-  // String? _host; // Unused
-  // int? _port; // Unused
+  // 移除 _hasReceivedConnected 标志
+  // bool _hasReceivedConnected = false; 
   final Duration _timeout = const Duration(seconds: 5); // 连接和读取超时
+  final Duration _connectTimeout = const Duration(seconds: 8); // 增加连接总超时
 
   // 使用单独的数据接收器来处理数据
   final _dataStreamController = StreamController<List<int>>.broadcast();
@@ -20,7 +20,7 @@ class CommunicationService {
   bool get isConnected => _isConnected;
 
   // 连接到设备
-  Future<bool> connect(String host, int port, {int maxRetries = 3, Duration retryDelay = const Duration(seconds: 1)}) async {
+  Future<bool> connect(String host, int port, {int maxRetries = 1, Duration retryDelay = const Duration(seconds: 1)}) async {
     int retries = 0;
     while (retries < maxRetries) {
       // 先断开现有连接，确保清理状态
@@ -28,144 +28,155 @@ class CommunicationService {
         await disconnect();
       }
 
-    // _host = host; // Unused
-    // _port = port; // Unused
+      try {
+        debugPrint ("正在连接到 $host:$port (尝试 ${retries + 1}/$maxRetries)..."); // Use logger
+        _socket = await Socket.connect(host, port, timeout: _connectTimeout);
+        debugPrint ("TCP Socket 已建立，等待 'CONNECTED' 确认..."); // Use logger
 
-    try {
-      debugPrint ("正在连接到 $host:$port..."); // Use logger
-      _socket = await Socket.connect(host, port, timeout: _timeout);
-      _isConnected = true;
-      debugPrint ("连接成功！"); // Use logger
+        // --- 关键修改：在 connect 内部处理 CONNECTED 消息 ---
+        // 设置数据流转发 (提前设置以便读取 CONNECTED)
+        _socketSubscription = _socket!.listen(
+          (data) {
+            _dataStreamController.add(data);
+          },
+          onError: (error) {
+            debugPrint ("Socket 错误: $error"); // Use logger
+            disconnect(); // 出错时断开连接
+          },
+          onDone: () {
+            debugPrint ("Socket 连接已关闭 (onDone)"); // Use logger
+            disconnect(); // 完成时断开连接
+          },
+          cancelOnError: true, // 错误时取消订阅
+        );
 
-      // 设置数据流转发
-      _socketSubscription = _socket!.listen(
-        (data) {
-          // 将数据转发到我们的广播流中
-          _dataStreamController.add(data);
-        },
-        onError: (error) {
-          debugPrint ("Socket 错误: $error"); // Use logger
-          disconnect(); // 出错时断开连接
-        },
-        onDone: () {
-          debugPrint ("Socket 连接已关闭"); // Use logger
-          disconnect(); // 完成时断开连接
-        },
-        cancelOnError: false, // 不要在错误时取消，让我们的错误处理来处理
-      );
+        // 尝试读取 CONNECTED 消息
+        try {
+           final List<int> connectedData = await _dataStreamController.stream
+               .first // 只读取第一个事件
+               .timeout(_timeout, onTimeout: () {
+                 debugPrint("'CONNECTED' 消息读取超时"); // Use logger
+                 throw TimeoutException("'CONNECTED' message read timed out");
+               });
 
-      return true;
-      // return true; // Dead code, already returned on line 55
-    } on SocketException catch (e) {
-       debugPrint("WiFi 连接失败 (尝试 ${retries + 1}/$maxRetries): ${e.message} (OS Error: ${e.osError?.message}, Code: ${e.osError?.errorCode})"); // Use logger
-      // 清理资源
-      _isConnected = false;
-      _socket?.destroy();
-      _socket = null;
-      _socketSubscription?.cancel();
-      _socketSubscription = null;
+           final connectedResponse = utf8.decode(connectedData).trim();
+           debugPrint("收到连接确认消息: '$connectedResponse'"); // Use logger
 
-      retries++;
-      if (retries < maxRetries) {
-        debugPrint ("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
-        await Future.delayed(retryDelay);
-      } else {
-        debugPrint ("连接重试次数已达上限，连接失败。"); // Use logger
-        return false; // 重试次数用尽，返回失败
+           if (connectedResponse == "CONNECTED") {
+             _isConnected = true; // 只有收到 CONNECTED 才算完全连接成功
+             debugPrint ("连接成功并已确认！"); // Use logger
+             return true; // 连接成功
+           } else {
+              debugPrint ("收到的确认消息不正确，预期 'CONNECTED'"); // Use logger
+              await disconnect(); // 断开无效连接
+              // 不需要重试，因为协议错误不是网络问题
+              return false; 
+           }
+        } catch (e) {
+           debugPrint ("确认连接时出错: $e"); // Use logger
+           await disconnect(); // 确认失败则断开
+           // 根据错误类型决定是否重试，这里暂时不重试协议错误
+           return false; 
+        }
+        // --- 结束关键修改 ---
+
+      } on SocketException catch (e) {
+         debugPrint("连接失败 (尝试 ${retries + 1}/$maxRetries): ${e.message} (OS Error: ${e.osError?.message}, Code: ${e.osError?.errorCode})"); // Use logger
+        await _cleanupSocketResources(); // 清理资源
+        retries++;
+        if (retries < maxRetries) {
+          debugPrint ("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
+          await Future.delayed(retryDelay);
+        } else {
+          debugPrint ("连接重试次数已达上限。"); // Use logger
+          return false;
+        }
+      } on TimeoutException catch(e) { // Catch connect timeout specifically
+         debugPrint("连接超时 (尝试 ${retries + 1}/$maxRetries): $e"); // Use logger
+         await _cleanupSocketResources(); // Clean up on timeout
+         retries++;
+         if (retries < maxRetries) {
+           debugPrint ("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
+           await Future.delayed(retryDelay);
+         } else {
+           debugPrint ("连接重试次数已达上限。"); // Use logger
+           return false;
+         }
+      } catch (e) {
+        debugPrint ("连接时发生未知错误 (尝试 ${retries + 1}/$maxRetries): $e"); // Use logger
+        await _cleanupSocketResources(); // 清理资源
+        retries++;
+        if (retries < maxRetries) {
+           debugPrint ("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
+           await Future.delayed(retryDelay);
+        } else {
+           debugPrint ("连接重试次数已达上限。"); // Use logger
+           return false;
+        }
       }
-    } catch (e) {
-      debugPrint ("WiFi 连接时发生未知错误 (尝试 ${retries + 1}/$maxRetries): $e"); // Use logger
-       // 清理资源
-      _isConnected = false;
-      _socket?.destroy();
-      _socket = null;
-      _socketSubscription?.cancel();
-      _socketSubscription = null;
+    } // end while loop
+    return false; // 如果循环结束仍未成功连接
+  }
 
-      retries++;
-      if (retries < maxRetries) {
-         debugPrint ("将在 ${retryDelay.inSeconds} 秒后重试..."); // Use logger
-         await Future.delayed(retryDelay);
-      } else {
-         debugPrint ("连接重试次数已达上限，连接失败。"); // Use logger
-         return false; // 重试次数用尽，返回失败
-      }
-    }
-   } // end while loop
-   return false; // 如果循环结束仍未成功连接
+  // 辅助方法：清理 Socket 资源
+  Future<void> _cleanupSocketResources() async {
+      _isConnected = false; // Make sure state is false
+      await _socketSubscription?.cancel();
+      _socketSubscription = null;
+      try {
+        // _socket?.shutdown(SocketDirection.both); // Optional: try shutdown first
+        await _socket?.close();
+      } catch (_) {} // Ignore errors during close
+      try {
+        _socket?.destroy();
+      } catch (_) {} // Ignore errors during destroy
+      _socket = null;
   }
 
   // 断开连接
   Future<void> disconnect() async {
+    if (!_isConnected && _socket == null && _socketSubscription == null) {
+       debugPrint("已处于断开状态，无需操作。"); // Use logger
+       return; // Avoid redundant disconnect calls
+    }
     debugPrint ("正在断开连接..."); // Use logger
-
-    // 取消流订阅
-    if (_socketSubscription != null) {
-      await _socketSubscription!.cancel();
-      _socketSubscription = null;
-    }
-
-    if (_socket != null) {
-      try {
-        await _socket!.close(); // 等待关闭完成
-      } catch (e) {
-        debugPrint ("关闭 Socket 时出错: $e"); // Use logger
-      } finally {
-         try {
-           _socket?.destroy(); // 使用可空调用，确保销毁
-         } catch (e) {
-           debugPrint ("销毁 Socket 时出错: $e"); // Use logger
-         }
-         _socket = null;
-      }
-    }
-
-    _isConnected = false; // 无论如何都确保状态正确
-    debugPrint ("连接已断开"); // Use logger
+    await _cleanupSocketResources(); // 使用辅助方法清理
+    debugPrint ("连接已断开。"); // Use logger
   }
 
-  // 读取传感器数据
+  // 读取传感器数据 (简化后)
   Future<Map<String, dynamic>?> readData() async {
     if (!_isConnected || _socket == null) {
-      debugPrint ("未连接到设备，无法读取数据");
+      debugPrint ("未连接到设备，无法读取数据"); // Use logger
       return null;
     }
 
     try {
-      debugPrint ("发送命令: GET_CURRENT");
-      _socket!.writeln("GET_CURRENT");
-      await _socket!.flush();
+      // 1. 发送命令
+      debugPrint ("发送命令: GET_CURRENT"); // Use logger
+      // ESP32 期望有换行符
+      _socket!.writeln("GET_CURRENT"); 
+      await _socket!.flush(); // 确保命令已发送
 
-      debugPrint ("等待设备响应...");
-
+      // 2. 等待并读取响应 (JSON 数据)
+      debugPrint ("等待设备响应 (JSON)..."); // Use logger
       try {
-        String response;
-        if (!_hasReceivedConnected) {
-          // 首次需要读取CONNECTED
-          final List<int> connectedData = await _dataStreamController.stream.first.timeout(_timeout);
-          final connectedResponse = utf8.decode(connectedData).trim();
-          debugPrint("收到确认消息: $connectedResponse");
-          if (connectedResponse != "CONNECTED") {
-            debugPrint("未收到预期的确认消息");
-            return null;
-          }
-          _hasReceivedConnected = true;
-          // 再读JSON
-          final List<int> jsonData = await _dataStreamController.stream.first.timeout(_timeout);
-          response = utf8.decode(jsonData).trim();
-          debugPrint("收到JSON数据: $response");
-        } else {
-          // 后续直接读JSON
-          final List<int> jsonData = await _dataStreamController.stream.first.timeout(_timeout);
-          response = utf8.decode(jsonData).trim();
-          debugPrint("收到JSON数据: $response");
-        }
+        final List<int> jsonData = await _dataStreamController.stream
+            .first // 读取下一个事件
+            .timeout(_timeout, onTimeout: () {
+              debugPrint("读取 JSON 数据超时"); // Use logger
+              throw TimeoutException("JSON data read timed out");
+            });
 
+        final response = utf8.decode(jsonData).trim();
+        debugPrint("收到 JSON 数据: $response"); // Use logger
+
+        // 3. 解析 JSON
         try {
           final jsonMap = jsonDecode(response) as Map<String, dynamic>;
-          debugPrint("成功解析JSON数据: $jsonMap");
+          debugPrint("成功解析 JSON 数据"); // Use logger
 
-          // 适配main.py的字段
+          // 适配字段 (保持不变)
           final result = {
             'timestamp_ms': jsonMap['timestamp_ms'] as int?,
             'page': jsonMap['page'] as int?,
@@ -174,35 +185,42 @@ class CommunicationService {
             'temperature': (jsonMap['temperature_c'] as num?)?.toDouble(),
             'humidity': (jsonMap['humidity_percent'] as num?)?.toDouble(),
             'light_intensity': (jsonMap['lux'] as num?)?.toDouble(),
-            // 统一转换为 noiseIMs
-            'noiseIMs': (jsonMap['noise_rms_smoothed'] as num?)?.toDouble(),
+            'noiseDb': (jsonMap['noise_rms_smoothed'] as num?)?.toDouble(),
             'keys_pressed': jsonMap['keys_pressed'] as String?,
             'mem_free': jsonMap['mem_free_bytes'] as int?,
           };
-          debugPrint("转换后的数据: $result");
+          // debugPrint("转换后的数据: $result"); // Verbose, optional
           return result;
         } catch (e) {
-          debugPrint("解析 JSON 失败: $e, 响应: $response");
+          debugPrint("解析 JSON 失败: $e, 响应: $response"); // Use logger
+          // 收到无效数据，可能需要断开
+          await disconnect();
           return null;
         }
       } on TimeoutException {
-        debugPrint("读取数据超时");
-        return null;
-      } on SocketException catch (e) {
-        debugPrint ("读取数据时发生 Socket 错误: ${e.message}. 连接可能已断开.");
-        await disconnect();
-        return null;
+         // Read timed out, potential connection issue
+         debugPrint("读取 JSON 数据超时，可能连接丢失"); // Use logger
+         await disconnect();
+         return null;
+      } on StateError catch (e) {
+         // Stream closed before data arrived (likely due to disconnect)
+         debugPrint("读取 JSON 时 Stream 已关闭: $e. 连接可能已断开."); // Use logger
+         await disconnect(); // Ensure state is disconnected
+         return null;
       } catch (e) {
-        debugPrint ("读取数据流时发生未知错误: $e");
-        await disconnect();
-        return null;
+         // Other stream errors
+         debugPrint ("读取数据流时发生未知错误: $e"); // Use logger
+         await disconnect();
+         return null;
       }
     } on SocketException catch (e) {
-      debugPrint ("发送命令或刷新 Socket 时发生错误: ${e.message}. 连接可能已断开.");
+      // Error during write/flush (connection likely lost)
+      debugPrint ("发送命令或刷新 Socket 时发生错误: ${e.message}. 连接已断开."); // Use logger
       await disconnect();
       return null;
     } catch (e) {
-      debugPrint ("WiFi 读取数据时发生未知错误: $e");
+      // Other unexpected errors during send
+      debugPrint ("发送命令时发生未知错误: $e"); // Use logger
       await disconnect();
       return null;
     }
@@ -234,7 +252,7 @@ class CommunicationService {
   // 注意: wifi_scan 插件主要用于扫描 WiFi 网络名称 (SSID)，而不是扫描局域网 IP。
   // 扫描局域网 IP 通常需要更底层的实现或特定平台的库。
   // 这里提供一个简化的思路，但不保证能在所有平台工作或找到所有设备。
-  Future<List<String>> scanNetworkDevices(String networkPrefix, {int port = 8266, Duration scanTimeoutPerIp = const Duration(milliseconds: 500)}) async {
+  Future<List<String>> scanNetworkDevices(String networkPrefix, {int port = 8888, Duration scanTimeoutPerIp = const Duration(milliseconds: 500)}) async {
       if (networkPrefix.isEmpty) {
           debugPrint ("网络前缀为空，无法扫描"); // Use logger
           return [];

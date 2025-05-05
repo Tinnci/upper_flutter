@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 import '../models/sensor_data.dart';
 import '../providers/app_state.dart';
+import '../utils/keyboard_intents.dart'; // 导入 Intents
 // import 'package:csv/csv.dart'; // For CSV export
 // import 'package:path_provider/path_provider.dart'; // For file path
 // import 'dart:io'; // For file operations
@@ -190,38 +191,63 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
     }
   }
 
+  // Action handler for deleting all data via shortcut
+  void _handleDeleteAllAction(DeleteDataIntent intent) {
+    // Avoid triggering if loading
+    if (!_isLoading) {
+      _clearAllData(); 
+    }
+  }
+
+  // Action handler for exporting data via shortcut
+  void _handleExportAction(ExportDataIntent intent) {
+    // Avoid triggering if loading or no data
+    if (!_isLoading && _data.isNotEmpty) {
+       _exportCsv();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('数据库管理'), // Updated title
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _isLoading ? null : () => _loadData(),
-            tooltip: '刷新',
-          ),
-          IconButton(
-            icon: const Icon(Icons.download),
-            onPressed: _isLoading || _data.isEmpty ? null : _exportCsv,
-            tooltip: '导出 CSV',
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          _buildFilterSection(context),
-          _buildManagementSection(context), // Add management buttons section
-          const Divider(),
-          Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _data.isEmpty
-                    ? const Center(child: Text('没有数据'))
-                    : _buildDataTable(),
-          ),
-        ],
+    // Wrap with Actions widget
+    return Actions(
+      actions: <Type, Action<Intent>>{
+         DeleteDataIntent: CallbackAction<DeleteDataIntent>(onInvoke: _handleDeleteAllAction),
+         ExportDataIntent: CallbackAction<ExportDataIntent>(onInvoke: _handleExportAction),
+      },
+      child: Focus( // Ensure the Actions widget can receive focus
+         autofocus: true, // Request focus when the screen is built
+         child: Scaffold(
+           appBar: AppBar(
+             title: const Text('数据库管理'), // Updated title
+             actions: [
+               IconButton(
+                 icon: const Icon(Icons.refresh),
+                 onPressed: _isLoading ? null : () => _loadData(),
+                 tooltip: '刷新',
+               ),
+               IconButton(
+                 icon: const Icon(Icons.download),
+                 onPressed: _isLoading || _data.isEmpty ? null : _exportCsv,
+                 tooltip: '导出 CSV (Ctrl+E)',
+               ),
+             ],
+           ),
+           body: Column(
+             children: [
+               _buildFilterSection(context),
+               _buildManagementSection(context), // Add management buttons section
+               const Divider(),
+               Expanded(
+                 child: _isLoading
+                     ? const Center(child: CircularProgressIndicator())
+                     : _data.isEmpty
+                         ? const Center(child: Text('没有数据'))
+                         : _buildDataTable(),
+               ),
+             ],
+           ),
+         ),
       ),
     );
   }
@@ -335,7 +361,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
            columns: const [
              DataColumn(label: Text('ID')),
              DataColumn(label: Text('时间戳')),
-             DataColumn(label: Text('噪声(dB)')), // 修改字段名
+             DataColumn(label: Text('噪声(dB)')),
              DataColumn(label: Text('温度(°C)')),
              DataColumn(label: Text('湿度(%)')),
              DataColumn(label: Text('光照(lux)')),
@@ -344,7 +370,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
              cells: [
                DataCell(Text(item.id?.toString() ?? '')),
                DataCell(Text(_dateFormat.format(item.timestamp))),
-               DataCell(Text(item.noiseDb.toStringAsFixed(1))), // 修改为 noiseDb
+               DataCell(Text(item.noiseDb.toStringAsFixed(1))),
                DataCell(Text(item.temperature.toStringAsFixed(1))),
                DataCell(Text(item.humidity.toStringAsFixed(1))),
                DataCell(Text(item.lightIntensity.toStringAsFixed(1))),
