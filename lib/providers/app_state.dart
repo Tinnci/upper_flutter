@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math'; // 导入 dart:math 库
 import 'package:flutter/material.dart';
 import '../models/sensor_data.dart';
 import '../models/settings_model.dart';
@@ -191,20 +192,38 @@ class AppState extends ChangeNotifier {
     final dataMap = await _commService.readData();
     if (dataMap != null) {
       try {
-         // 使用当前时间戳创建 SensorData 对象
+         // 从 dataMap 获取原始 RMS 值 (CommunicationService 已将其映射到 'noiseDb')
+         final double rawRms = (dataMap['noiseDb'] ?? 0.0).toDouble();
+
+         // 执行 RMS 到 dB 的转换
+         double calculatedDb;
+         if (rawRms > 0) {
+           // 使用 log10(rms) = log(rms) / log(10)
+           // log(10) 是自然对数 ln(10)
+           calculatedDb = 20 * (log(rawRms) / log(10)); 
+         } else {
+           calculatedDb = 0.0; // 处理 RMS <= 0 的情况，设为 0 dB
+         }
+         // 确保 dB 值不是 NaN 或无限大
+         if (calculatedDb.isNaN || calculatedDb.isInfinite) {
+             calculatedDb = 0.0;
+         }
+
+         // 使用当前时间戳和计算出的 dB 值创建 SensorData 对象
          final newData = SensorData(
              timestamp: DateTime.now(), // 使用接收数据的时间
-             // 使用 noiseDb 并从映射中获取 'noiseDb'
-             noiseDb: dataMap['noiseDb'] ?? 0.0, 
-             temperature: dataMap['temperature'] ?? 0.0,
-             humidity: dataMap['humidity'] ?? 0.0,
-             lightIntensity: dataMap['light_intensity'] ?? 0.0,
+             // 使用计算出的 dB 值
+             noiseDb: calculatedDb, 
+             temperature: (dataMap['temperature'] ?? 0.0).toDouble(),
+             humidity: (dataMap['humidity'] ?? 0.0).toDouble(),
+             lightIntensity: (dataMap['light_intensity'] ?? 0.0).toDouble(),
          );
+
         _currentData = newData;
-        await _dbHelper.insertReading(newData); // 存入数据库
+        await _dbHelper.insertReading(newData); // 存入数据库 (现在是 dB 值)
 
         // --- 更新图表缓冲区 ---
-        _chartDataBuffer.add(newData); // 添加新数据到末尾
+        _chartDataBuffer.add(newData); // 添加新数据到末尾 (dB 值)
         // 如果缓冲区超过大小，移除最旧的数据（列表开头）
         if (_chartDataBuffer.length > chartDataPoints) {
           _chartDataBuffer.removeAt(0);
