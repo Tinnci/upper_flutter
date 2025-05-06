@@ -51,9 +51,10 @@
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" /> <!-- If your app ever needs to advertise -->
 
-    <!-- Request location permissions - necessary for BLE scanning on Android 11 and below -->
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30"/>
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
+    <!-- Request location permissions - NEEDED for BLE scanning on Android 12+ -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" /> 
+
     <!-- Add android:required="false" if location is only needed for BLE -->
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
 </manifest>

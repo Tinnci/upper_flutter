@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'dart:io' show Platform;
+import 'package:universal_ble/universal_ble.dart';
 import '../providers/app_state.dart';
 import 'db_management_screen.dart';
 import 'settings_screen.dart';
@@ -383,7 +384,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
   // 构建通信控制区域
   Widget _buildControlSection(BuildContext context, AppState appState) {
     // Determine enabled state based on *any* connection/scan activity
-    final bool isBusy = appState.isConnectingTcp || appState.isConnectingBle || appState.isScanningBle;
+    final bool isBusy = appState.isConnecting || appState.isScanningBle;
     final bool isSmallScreen = MediaQuery.of(context).size.width < 600;
 
     // Helper for adaptive text field
@@ -464,15 +465,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
          minWidth: 60,
          maxWidth: 80,
        ),
-       // Optional TCP Scan button (can be confusing with BLE scan)
-       // _buildAdaptiveButton(
-       //   label: '扫网段',
-       //   icon: Icons.wifi_find,
-       //   onPressed: () => appState.scanTcpNetwork(),
-       //   isLoading: false, // Add isScanningTcp state if needed
-       //   enabled: !isBusy && !appState.isConnected, // Disable if any connection active
-       //   type: 'outlined',
-       // ),
        _buildAdaptiveButton(
          label: appState.isTcpConnected ? '断开TCP' : '连接TCP',
          icon: appState.isTcpConnected ? Icons.link_off : Icons.link,
@@ -500,10 +492,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
              // Show selected device if any
              if (appState.selectedDevice != null)
                Chip(
-                 label: Text(appState.selectedDevice!.platformName.isNotEmpty
-                      ? appState.selectedDevice!.platformName
-                      : appState.selectedDevice!.remoteId.toString(),
-                      overflow: TextOverflow.ellipsis,
+                 label: Text(
+                   (appState.selectedDevice!.name?.isNotEmpty ?? false)
+                       ? appState.selectedDevice!.name!
+                       : appState.selectedDevice!.deviceId,
+                   overflow: TextOverflow.ellipsis,
                  ),
                  avatar: Icon(Icons.bluetooth, size: 16, color: Theme.of(context).colorScheme.primary),
                  onDeleted: appState.isBleConnected ? null : () { // Allow clearing selection only if not connected
@@ -519,7 +512,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               onPressed: () => appState.toggleBleConnection(),
               isLoading: appState.isConnectingBle,
                // Disable connect if busy or no device selected (and not already connected)
-              enabled: !isBusy && (appState.selectedDevice != null || appState.isBleConnected),
+              enabled: !isBusy && (appState.selectedDeviceId != null || appState.isBleConnected),
               type: 'filled', // Use primary color for connect
               color: appState.isBleConnected ? Theme.of(context).colorScheme.error : null,
             ),
@@ -596,18 +589,20 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                                            controller: scrollController, // Link controller
                                            itemCount: state.scanResults.length,
                                            itemBuilder: (context, index) {
-                                             final result = state.scanResults[index];
-                                             final deviceName = result.device.platformName.isNotEmpty
-                                                 ? result.device.platformName
+                                             final device = state.scanResults[index];
+                                             final deviceName = (device.name?.isNotEmpty ?? false)
+                                                 ? device.name!
                                                  : "Unknown Device";
+                                             final deviceId = device.deviceId;
+                                             final rssi = device.rssi ?? "N/A"; // Handle null RSSI
                                              return ListTile(
                                                 leading: Icon(Icons.bluetooth),
                                                 title: Text(deviceName),
-                                                subtitle: Text(result.device.remoteId.toString()),
-                                                trailing: Text("${result.rssi} dBm"),
+                                                subtitle: Text(deviceId),
+                                                trailing: Text("$rssi dBm"),
                                                 onTap: () {
                                                    state.stopBleScan(); // Stop scanning on selection
-                                                   state.selectDevice(result.device); // Select in AppState
+                                                   state.selectDevice(device); // Pass the BleDevice object
                                                    Navigator.pop(modalContext); // Close modal
                                                 },
                                              );
@@ -624,7 +619,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
        },
      ).whenComplete(() {
         // Ensure scan stops when modal is dismissed externally
-        appState.stopBleScan();
+        if (appState.isScanningBle) {
+           appState.stopBleScan();
+        }
      });
   }
 

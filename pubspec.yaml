@@ -46,8 +46,8 @@ dependencies:
   dynamic_color: ^1.7.0 # For Material You dynamic theming
   flutter_adaptive_scaffold: ^0.1.10 # For adaptive layouts
   shared_preferences: ^2.2.2 # For storing app settings
-  flutter_blue_plus: ^1.15.9 # Use the latest compatible version
-  permission_handler: ^11.0.0 # Often needed for BLE permissions
+  universal_ble: ^0.17.0 # Add this line
+  permission_handler: ^12.0.0+1 # Update to the latest major version
 dev_dependencies:
   flutter_test:
     sdk: flutter

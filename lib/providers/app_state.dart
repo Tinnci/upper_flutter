@@ -2,13 +2,14 @@ import 'dart:async';
 // Needed for platform checks
 import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // Import flutter_blue_plus
+// import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // Remove flutter_blue_plus import
+import 'package:universal_ble/universal_ble.dart'; // Import universal_ble
 import 'package:permission_handler/permission_handler.dart';
 import '../models/sensor_data.dart';
 import '../models/settings_model.dart';
 // Rename original CommunicationService for clarity
 import '../services/communication_service.dart' as tcp_service;
-import '../services/BleCommunicationService.dart'; // Import BLE service
+import '../services/BleCommunicationService.dart'; // Keep BLE service import
 import '../services/database_helper.dart';
 import '../services/settings_service.dart';
 
@@ -46,7 +47,7 @@ class AppState extends ChangeNotifier {
   bool _isTcpConnected = false;
   bool _isBleConnected = false;
   bool _isConnectingTcp = false;
-  bool _isConnectingBle = false;
+  bool _isConnectingBle = false; // This flag might need refinement based on stream
   bool _isScanningBle = false; // Only BLE scanning state needed
 
   // Flags to indicate which connection is the active data source
@@ -61,19 +62,25 @@ class AppState extends ChangeNotifier {
   String _statusMessage = "就绪";
   String get statusMessage => _statusMessage;
 
-  // --- BLE Specific State ---
-  List<ScanResult> _scanResults = [];
-  List<ScanResult> get scanResults => _scanResults;
-  BluetoothDevice? _selectedDevice;
-  BluetoothDevice? get selectedDevice => _selectedDevice;
-  StreamSubscription<List<ScanResult>>? _scanSubscription;
+  // --- BLE Specific State (Updated types) ---
+  List<BleDevice> _scanResults = []; // Use BleDevice from universal_ble
+  List<BleDevice> get scanResults => _scanResults;
+  BleDevice? _selectedDevice; // Store the selected BleDevice object
+  String? _selectedDeviceId; // Store the ID for connection attempts
+  BleDevice? get selectedDevice => _selectedDevice; // Getter for UI display
+  String? get selectedDeviceId => _selectedDeviceId; // <-- 添加这个 getter
+
+  // Stream Subscriptions for BLE Service
+  StreamSubscription<BleDevice>? _scanSubscription;
+  StreamSubscription<bool>? _bleConnectionStateSubscription;
   StreamSubscription<SensorData>? _bleDataSubscription;
+
 
   // Accessors for specific states needed by UI
   bool get isTcpConnected => _isTcpConnected;
   bool get isBleConnected => _isBleConnected;
   bool get isConnectingTcp => _isConnectingTcp;
-  bool get isConnectingBle => _isConnectingBle;
+  bool get isConnectingBle => _isConnectingBle; // Keep for UI indication
   bool get isScanningBle => _isScanningBle;
 
 
@@ -92,8 +99,8 @@ class AppState extends ChangeNotifier {
   AppState() {
     _bleCommService = BleCommunicationService(); // Initialize BLE service
     _initSettings().then((_) {
-       // Listen to BLE data stream AFTER settings are loaded (if needed)
-       _listenToBleData();
+       // Listen to BLE streams AFTER settings are loaded
+       _listenToBleStreams();
     });
   }
 
@@ -127,7 +134,7 @@ class AppState extends ChangeNotifier {
     if (notify) notifyListeners();
   }
 
-  // --- TCP Connection Logic ---
+  // --- TCP Connection Logic (Keep as is) ---
   Future<void> toggleTcpConnection() async {
      if (_isConnectingTcp || _isConnectingBle || _isScanningBle) return; // Prevent overlap
 
@@ -147,6 +154,7 @@ class AppState extends ChangeNotifier {
   Future<void> _connectTcp() async {
     _isConnectingTcp = true;
     _updateStatus("正在连接 TCP 到 ${_settings.defaultIpAddress}:${_settings.defaultPort}...");
+    notifyListeners(); // Notify UI that TCP connection is starting
 
     final portInt = int.tryParse(_settings.defaultPort);
     if (portInt == null) {
@@ -158,7 +166,7 @@ class AppState extends ChangeNotifier {
 
     // Use the renamed service instance
     final success = await _tcpCommService.connect(_settings.defaultIpAddress, portInt);
-    _isConnectingTcp = false;
+    _isConnectingTcp = false; // Connection attempt finished
 
     if (success) {
       _isTcpConnected = true;
@@ -172,7 +180,7 @@ class AppState extends ChangeNotifier {
       _activeConnectionType = ActiveConnectionType.none;
       _updateStatus("TCP 连接失败");
     }
-    notifyListeners();
+    notifyListeners(); // Notify UI of final TCP connection state
   }
 
   Future<void> _disconnectTcp() async {
@@ -230,10 +238,11 @@ class AppState extends ChangeNotifier {
 
         _consecutiveReadFailures = 0;
         // _updateStatus("TCP 数据已更新"); // Optional status update
-        notifyListeners(); // Notify UI of new data
+        // notifyListeners(); // Notify is handled by _processReceivedData
       } catch (e) {
          debugPrint("处理 TCP 数据时出错: $e");
          _updateStatus("TCP 数据处理错误");
+         notifyListeners(); // Notify on error
       }
     } else {
       // Handle TCP read failure
@@ -244,19 +253,23 @@ class AppState extends ChangeNotifier {
       if (_consecutiveReadFailures >= _maxReadFailures) {
         debugPrint("TCP 连续读取失败次数达到上限，断开连接...");
         _updateStatus("TCP 连接丢失，正在断开...");
-        await _disconnectTcp();
+        await _disconnectTcp(); // This already notifies
+      } else {
+         notifyListeners(); // Notify status update on non-fatal read failure
       }
     }
   }
 
 
-  // --- BLE Connection Logic ---
+  // --- BLE Connection Logic (Updated for universal_ble via Service) ---
 
-  // Select device for connection attempt - Change parameter to nullable
-  void selectDevice(BluetoothDevice? device) {
-     _selectedDevice = device;
+  // Select device for connection attempt - Use BleDevice and store ID
+  void selectDevice(BleDevice? device) {
+     _selectedDevice = device; // Store the full BleDevice for UI display
+     _selectedDeviceId = device?.deviceId; // Store the ID for connection
      if (device != null) {
-        _updateStatus("已选择设备: ${device.platformName}");
+        // Use device.name which universal_ble provides
+        _updateStatus("已选择设备: ${device.name ?? device.deviceId}");
      } else {
          _updateStatus("已清除选择的设备"); // Update status when cleared
      }
@@ -267,44 +280,62 @@ class AppState extends ChangeNotifier {
   Future<void> scanBleDevices() async {
      if (_isScanningBle || _isConnectingTcp || _isConnectingBle) return;
      if (!await _checkAndRequestPermissions()) {
-        _updateStatus("权限不足，无法扫描 BLE 设备");
+        // _checkAndRequestPermissions already updates status on failure
         return;
      }
-
 
      _isScanningBle = true;
      _scanResults = []; // Clear previous results
      _updateStatus("正在扫描 BLE 设备...");
      notifyListeners();
 
-     // Stop scan after a timeout
-     var scanTimeout = Timer(const Duration(seconds: 10), () {
-        stopBleScan();
-        if (_scanResults.isEmpty) {
-           _updateStatus("未找到 BLE 设备");
-        } else {
-           _updateStatus("BLE 扫描完成");
-        }
-     });
-
-     // Clear previous subscription if any
+     // Cancel previous scan subscription if any
      await _scanSubscription?.cancel();
      _scanSubscription = null;
 
-     // Listen to scan results stream
-     _scanSubscription = _bleCommService.scanDevices().listen(
-       (results) {
-          // Filter results (optional: filter by name or service UUID again here if needed)
-          _scanResults = results.where((r) => r.device.platformName.isNotEmpty).toList();
-          _updateStatus("发现 ${_scanResults.length} 个 BLE 设备...");
-          notifyListeners();
+     // Listen to the stream from BleCommunicationService
+     _scanSubscription = _bleCommService.scanResultStream.listen(
+       (device) {
+          // Add device if not already in the list (based on deviceId)
+          if (!_scanResults.any((d) => d.deviceId == device.deviceId)) {
+            _scanResults.add(device);
+            // Sort results by RSSI (optional, descending)
+            _scanResults.sort((a, b) => (b.rssi ?? -100).compareTo(a.rssi ?? -100));
+            _updateStatus("发现 ${_scanResults.length} 个 BLE 设备...");
+            notifyListeners();
+          }
        },
        onError: (error) {
-          debugPrint("BLE 扫描错误: $error");
+          debugPrint("BLE 扫描流错误: $error");
           _updateStatus("BLE 扫描出错");
           stopBleScan(); // Stop scan on error
+       },
+       onDone: () {
+          debugPrint("BLE 扫描流关闭");
+          // Might need to update state if stream closes unexpectedly
+          if (_isScanningBle) {
+              stopBleScan();
+          }
        }
      );
+
+     // Start scanning via the service
+     await _bleCommService.scanDevices();
+
+     // Stop scan after a timeout
+     Timer(const Duration(seconds: 10), () {
+        // Check if still scanning before stopping
+        if (_isScanningBle) {
+           stopBleScan();
+           if (_scanResults.isEmpty) {
+              _updateStatus("未找到 BLE 设备");
+              notifyListeners();
+           } else {
+              _updateStatus("BLE 扫描完成");
+              notifyListeners();
+           }
+        }
+     });
   }
 
   Future<void> stopBleScan() async {
@@ -313,120 +344,163 @@ class AppState extends ChangeNotifier {
      await _scanSubscription?.cancel();
      _scanSubscription = null;
      _isScanningBle = false;
-     // Don't clear _scanResults here, user might still be selecting
-     _updateStatus("BLE 扫描已停止");
-     notifyListeners();
+     // Don't update status here, let the caller or timeout handle it
+     // to avoid duplicate messages.
+     notifyListeners(); // Notify UI that scanning stopped
   }
 
   Future<bool> _checkAndRequestPermissions() async {
-     // Use permission_handler plugin
-     // Request Bluetooth Scan, Connect, and Location (for older Android)
+     // Permission request logic remains the same
      Map<Permission, PermissionStatus> statuses = await [
         Permission.bluetoothScan,
         Permission.bluetoothConnect,
-        // Location is only needed for scanning on Android 11 and below.
-        // Permission_handler handles platform differences.
         Permission.locationWhenInUse,
      ].request();
 
-     bool granted = statuses[Permission.bluetoothScan] == PermissionStatus.granted &&
-                    statuses[Permission.bluetoothConnect] == PermissionStatus.granted;
+     bool btScanGranted = statuses[Permission.bluetoothScan] == PermissionStatus.granted;
+     bool btConnectGranted = statuses[Permission.bluetoothConnect] == PermissionStatus.granted;
+     bool locationGranted = statuses[Permission.locationWhenInUse] == PermissionStatus.granted;
 
-     // Check location separately, might be needed for scanning
-     if (!granted && statuses[Permission.locationWhenInUse] != PermissionStatus.granted) {
-        debugPrint("Location permission denied, BLE scanning might fail.");
-        // Decide if location is strictly required for your target devices
-     }
-     if (!granted) {
-         debugPrint("Required Bluetooth permissions were not granted.");
-     }
 
-     // Check if Bluetooth adapter is ON
-     bool isBluetoothOn = await FlutterBluePlus.adapterState.first == BluetoothAdapterState.on;
+     if (!btScanGranted) debugPrint("Bluetooth Scan permission denied.");
+     if (!btConnectGranted) debugPrint("Bluetooth Connect permission denied.");
+     if (!locationGranted) debugPrint("Location permission denied, BLE scanning might fail.");
+
+     // Check Bluetooth adapter state using universal_ble via the service
+     final availability = await _bleCommService.getBluetoothAvailability();
+     bool isBluetoothOn = availability == AvailabilityState.poweredOn;
+
      if (!isBluetoothOn) {
-         debugPrint("Bluetooth is turned off.");
+         debugPrint("Bluetooth is turned off ($availability).");
          _updateStatus("请打开蓝牙");
-         // Optionally try to request turning it on (platform dependent)
-         // if (Platform.isAndroid) {
-         //    await FlutterBluePlus.turnOn();
-         // }
+         notifyListeners();
          return false;
      }
 
+     // Check Location Service Status (still important)
+     final serviceStatus = await Permission.location.serviceStatus;
+     final isGpsOn = serviceStatus == ServiceStatus.enabled;
+     if (!isGpsOn) {
+         debugPrint("Location services are disabled.");
+         _updateStatus("请开启位置服务 (GPS) 以进行蓝牙扫描");
+         notifyListeners();
+         return false;
+     }
 
-     return granted && isBluetoothOn;
+     // Return true only if essential permissions are granted and services are on
+     // Adjust required permissions based on your minimum Android target and logic
+     return btScanGranted && btConnectGranted && isBluetoothOn && isGpsOn;
   }
 
   Future<void> toggleBleConnection() async {
      if (_isConnectingTcp || _isConnectingBle || _isScanningBle) return;
 
-     // If TCP is active, disconnect it first (policy: only one active connection)
      if (_isTcpConnected) {
-        await toggleTcpConnection(); // Disconnect TCP
-        await Future.delayed(Duration(milliseconds: 500)); // Give time for cleanup
+        await toggleTcpConnection();
+        await Future.delayed(Duration(milliseconds: 500));
      }
-
 
      if (_isBleConnected) {
         await _disconnectBle();
      } else {
-        if (_selectedDevice == null) {
+        if (_selectedDeviceId == null) {
            _updateStatus("请先扫描并选择一个 BLE 设备");
            notifyListeners();
            return;
         }
-         if (!await _checkAndRequestPermissions()) {
-            _updateStatus("权限不足或蓝牙未开启");
-            return;
-         }
-        await _connectBle(_selectedDevice!);
+        // Permission check happens before starting connection attempt now
+        if (!await _checkAndRequestPermissions()) {
+           // Status already updated by _checkAndRequestPermissions
+           return;
+        }
+        await _connectBle(_selectedDeviceId!);
      }
   }
 
-   Future<void> _connectBle(BluetoothDevice device) async {
-      _isConnectingBle = true;
-      _updateStatus("正在连接 BLE 到 ${device.platformName} (${device.remoteId})...");
+   Future<void> _connectBle(String deviceId) async {
+      _isConnectingBle = true; // Indicate connection attempt start
+      // Use the stored BleDevice name if available, otherwise use ID
+      final deviceName = _selectedDevice?.name ?? deviceId;
+      _updateStatus("正在连接 BLE 到 $deviceName...");
       notifyListeners();
 
-      final success = await _bleCommService.connect(device);
-      _isConnectingBle = false;
+      // Service's connect method now attempts connection.
+      // The actual state change (_isBleConnected = true/false)
+      // will be handled by the _listenToBleStreams -> _bleConnectionStateSubscription listener.
+      final success = await _bleCommService.connect(deviceId);
 
-      if (success) {
-         _isBleConnected = true;
-         _activeConnectionType = ActiveConnectionType.ble; // Set BLE as active
-         _updateStatus("BLE 已连接到 ${device.platformName}");
-         // Reset TCP failure count if switching
-         _consecutiveReadFailures = 0;
-         _stopTcpDataFetching(); // Stop TCP polling if it was running
-         await loadLatestReadingsForChart(limit: chartDataPoints); // Load initial chart
-      } else {
-         _isBleConnected = false;
-         _activeConnectionType = ActiveConnectionType.none;
-         _selectedDevice = null; // Clear selection on failed connect
-         _updateStatus("BLE 连接失败");
+      // If connect call itself fails immediately (e.g., throws error), handle it.
+      if (!success) {
+           _isConnectingBle = false;
+           _isBleConnected = false; // Ensure state is false
+           _activeConnectionType = ActiveConnectionType.none;
+           _selectedDevice = null; // Clear selection on failed connect
+           _selectedDeviceId = null;
+           _updateStatus("BLE 连接失败");
+           notifyListeners();
       }
-      notifyListeners();
+      // Note: _isConnectingBle might be set back to false by the connection stream listener
+      // We keep it true here until the listener confirms success or failure.
    }
 
    Future<void> _disconnectBle() async {
+      // Stop setting _isBleConnected here, let the stream listener handle it
       await _bleCommService.disconnect();
-      _isBleConnected = false;
-      if (_activeConnectionType == ActiveConnectionType.ble) {
-         _activeConnectionType = ActiveConnectionType.none;
-          _currentData = null; // Clear data only if it was the active source
-          _chartDataBuffer = [];
-      }
-      _selectedDevice = null; // Clear selection
-      _updateStatus("BLE 已断开连接");
-      notifyListeners();
+      // Status update and state clearing will be triggered by the connection stream listener
    }
 
-   // Listen to data from BLE service
-   void _listenToBleData() {
-      _bleDataSubscription?.cancel(); // Cancel previous listener if any
+  // Listen to data streams from BLE service
+  void _listenToBleStreams() {
+      // Cancel previous listeners if any
+      _scanSubscription?.cancel();
+      _bleConnectionStateSubscription?.cancel();
+      _bleDataSubscription?.cancel();
+
+      // Listen for connection state changes
+      _bleConnectionStateSubscription = _bleCommService.connectionStateStream.listen(
+         (isConnected) {
+            _isConnectingBle = false; // Connection attempt finished
+            _isBleConnected = isConnected;
+
+            if (isConnected) {
+               _activeConnectionType = ActiveConnectionType.ble;
+               // Use the stored device name/ID for status
+               final deviceName = _selectedDevice?.name ?? _selectedDeviceId ?? "未知设备";
+               _updateStatus("BLE 已连接到 $deviceName");
+               _consecutiveReadFailures = 0; // Reset TCP failure count
+               _stopTcpDataFetching(); // Stop TCP polling
+               loadLatestReadingsForChart(limit: chartDataPoints); // Load initial chart
+            } else {
+               // Handle disconnection
+               if (_activeConnectionType == ActiveConnectionType.ble) {
+                  _activeConnectionType = ActiveConnectionType.none;
+                  _currentData = null;
+                  _chartDataBuffer = [];
+               }
+               // Only update status if it wasn't an explicit disconnect initiated by UI?
+               // For now, always update status.
+               _updateStatus("BLE 已断开连接");
+               // Clear selection only on disconnect? Maybe keep it for reconnect attempts?
+               // _selectedDevice = null;
+               // _selectedDeviceId = null;
+            }
+            notifyListeners();
+         },
+         onError: (error) {
+            debugPrint("BLE 连接状态流错误: $error");
+            _isConnectingBle = false;
+            _isBleConnected = false;
+            if (_activeConnectionType == ActiveConnectionType.ble) {
+               _activeConnectionType = ActiveConnectionType.none;
+            }
+            _updateStatus("BLE 连接错误");
+            notifyListeners();
+         }
+      );
+
+      // Listen for incoming sensor data
       _bleDataSubscription = _bleCommService.sensorDataStream.listen(
          (sensorData) {
-             // Ensure BLE is still the active connection type before processing
              if (_activeConnectionType == ActiveConnectionType.ble) {
                 _processReceivedData(sensorData, ActiveConnectionType.ble);
              }
@@ -434,22 +508,24 @@ class AppState extends ChangeNotifier {
          onError: (error) {
             debugPrint("Error on BLE data stream: $error");
             _updateStatus("BLE 数据流错误");
-            // Optionally disconnect on stream error
             if (_isBleConnected) {
-               _disconnectBle();
+               _disconnectBle(); // Disconnect on stream error
             }
          },
          onDone: () {
             debugPrint("BLE data stream closed.");
              if (_isBleConnected) {
-                 _updateStatus("BLE 数据流关闭，尝试断开");
+                 _updateStatus("BLE 数据流关闭，断开连接");
                  _disconnectBle();
              }
          }
       );
+
+      // Note: Scan result stream is listened to within scanBleDevices method
    }
 
-   // --- Common Data Processing ---
+
+   // --- Common Data Processing (Keep as is) ---
    Future<void> _processReceivedData(SensorData rawData, ActiveConnectionType sourceType) async {
       // Make sure this source is still the active one
       if (_activeConnectionType != sourceType) {
@@ -499,6 +575,7 @@ class AppState extends ChangeNotifier {
       } catch (e) {
           debugPrint("处理接收数据时出错 (Source: $sourceType): $e");
           _updateStatus("数据处理错误 ($sourceType)");
+          notifyListeners(); // Notify on processing error
       }
    }
 
@@ -512,18 +589,14 @@ class AppState extends ChangeNotifier {
       } catch (e) {
           debugPrint("加载图表数据时出错: $e");
           _updateStatus("加载图表数据失败");
+          notifyListeners(); // Notify on load error
       }
   }
 
-  // TCP Network Scan (Keep as is - maybe rename to scanTcpNetwork?)
+  // TCP Network Scan (Keep as is)
   Future<void> scanTcpNetwork() async {
-     // Use the combined 'isConnected' getter which checks both TCP and BLE
-     if (_isConnectingTcp || _isConnectingBle || _isScanningBle || isConnected) return; // <-- Use the getter 'isConnected'
+     if (_isConnectingTcp || _isConnectingBle || _isScanningBle || isConnected) return;
 
-     // [...] Keep the original TCP network scan logic using _tcpCommService.getNetworkPrefix() and _tcpCommService.scanNetworkDevices()
-     // Update status message accordingly ("正在扫描 TCP 网络...", "未找到 TCP 设备" etc.)
-
-     // Example structure:
      _updateStatus("正在扫描 TCP 网络...");
      notifyListeners(); // Maybe set an isScanningTcp flag if needed
 
@@ -534,16 +607,9 @@ class AppState extends ChangeNotifier {
        return;
      }
      try {
-        // Assuming scanNetworkDevices returns List<String> of IPs
         List<String> tcpDevices = await _tcpCommService.scanNetworkDevices(prefix, port: int.tryParse(_settings.defaultPort) ?? 8888);
         if (tcpDevices.isNotEmpty) {
-          // Maybe show these results or auto-select the first one?
-          // For now, just update status.
           _updateStatus("找到 ${tcpDevices.length} 个潜在 TCP 设备");
-          // Example: Auto-update IP field if only one found?
-          // if (tcpDevices.length == 1) {
-          //    await updateSetting('defaultIpAddress', tcpDevices[0]);
-          // }
         } else {
            _updateStatus("未找到 TCP 设备");
         }
@@ -562,13 +628,17 @@ class AppState extends ChangeNotifier {
   void dispose() {
     _stopTcpDataFetching();
     _tcpCommService.dispose(); // Dispose TCP service
+
+    // Cancel all BLE stream subscriptions
+    _scanSubscription?.cancel();
+    _bleConnectionStateSubscription?.cancel();
     _bleDataSubscription?.cancel();
     _bleCommService.dispose(); // Dispose BLE service
-    _scanSubscription?.cancel();
+
     super.dispose();
   }
 
-  // --- Database Management Methods (Keep as is) ---
+  // --- Database Management Methods (Keep as is, ensure they notify) ---
   Future<List<SensorData>> getAllDbReadings({int? limit}) async {
       return await _dbHelper.getAllReadings(limit: limit);
   }
@@ -586,26 +656,28 @@ class AppState extends ChangeNotifier {
       await _dbHelper.deleteDataBefore(days);
        _currentData = null;
        _chartDataBuffer = [];
-       await loadLatestReadingsForChart(limit: chartDataPoints);
-      notifyListeners();
+       await loadLatestReadingsForChart(limit: chartDataPoints); // Notifies internally
       _updateStatus("$days 天前的数据已删除");
+      notifyListeners(); // Explicit notify for status update
   }
   Future<bool> deleteDatabase() async {
     // Disconnect BOTH connections before deleting DB
     bool wasDisconnected = false;
     if (_isTcpConnected) {
-       await _disconnectTcp();
+       await _disconnectTcp(); // Notifies internally
        wasDisconnected = true;
     }
     if (_isBleConnected) {
-        await _disconnectBle();
+        await _disconnectBle(); // Triggers notification via stream
         wasDisconnected = true;
     }
     if (wasDisconnected) {
         _updateStatus("连接已断开 (准备删除数据库)");
+        notifyListeners();
         await Future.delayed(Duration(milliseconds: 200)); // Short delay
     } else {
        _updateStatus("准备删除数据库");
+       notifyListeners();
     }
 
     _currentData = null;

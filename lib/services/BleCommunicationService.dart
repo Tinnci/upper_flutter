@@ -1,223 +1,271 @@
 import 'dart:async';
-import 'dart:io' show Platform; // Keep for potential platform checks
-import 'package:flutter_blue_plus/flutter_blue_plus.dart';
+// Keep for potential platform checks
 import 'package:flutter/foundation.dart';
-import 'package:collection/collection.dart'; // For firstWhereOrNull
+// For firstWhereOrNull
 import 'dart:typed_data'; // For ByteData
 import '../models/sensor_data.dart'; // Assuming SensorData structure is suitable
+import 'package:universal_ble/universal_ble.dart'; // Import universal_ble
 
-// Define UUIDs from ESP32 code
-final Guid ENV_SENSE_SERVICE_UUID = Guid("0000181a-0000-1000-8000-00805f9b34fb"); // Standard 16-bit UUID format
-final Guid TEMP_CHAR_UUID         = Guid("00002a6e-0000-1000-8000-00805f9b34fb");
-final Guid HUMID_CHAR_UUID        = Guid("00002a6f-0000-1000-8000-00805f9b34fb");
-final Guid LUX_CHAR_UUID          = Guid("00002afb-0000-1000-8000-00805f9b34fb");
-final Guid NOISE_CHAR_UUID        = Guid("8eb6184d-bec0-41b0-8eba-e350662524ff"); // Custom UUID
+// Define UUIDs as Strings (universal_ble is format agnostic)
+const String ENV_SENSE_SERVICE_UUID = "0000181a-0000-1000-8000-00805f9b34fb";
+const String TEMP_CHAR_UUID         = "00002a6e-0000-1000-8000-00805f9b34fb";
+const String HUMID_CHAR_UUID        = "00002a6f-0000-1000-8000-00805f9b34fb";
+const String LUX_CHAR_UUID          = "00002afb-0000-1000-8000-00805f9b34fb";
+const String NOISE_CHAR_UUID        = "8eb6184d-bec0-41b0-8eba-e350662524ff"; // Custom UUID
 
 class BleCommunicationService {
-  BluetoothDevice? _connectedDevice;
-  StreamSubscription<BluetoothConnectionState>? _connectionSubscription;
-  final List<StreamSubscription<List<int>>> _characteristicSubscriptions = [];
+  String? _connectedDeviceId;
+  bool _isConnecting = false;
 
-  // StreamController to emit parsed SensorData
+  // StreamControllers to mimic the previous interface for AppState
+  final _scanResultController = StreamController<BleDevice>.broadcast();
+  final _connectionStateController = StreamController<bool>.broadcast();
   final _sensorDataController = StreamController<SensorData>.broadcast();
+
+  // Public Streams for AppState to listen to
+  Stream<BleDevice> get scanResultStream => _scanResultController.stream;
+  Stream<bool> get connectionStateStream => _connectionStateController.stream;
   Stream<SensorData> get sensorDataStream => _sensorDataController.stream;
 
   // Store latest partial values
   double? _lastTemp;
   double? _lastHumid;
   double? _lastLux;
-  double? _lastNoiseRms; // Store RMS
+  double? _lastNoiseRms;
   DateTime? _lastTimestamp;
 
-  bool get isConnected => _connectedDevice != null;
+  // Flag to track if notifications are set up
+  bool _notificationsEnabled = false;
+
+  // Constructor - Sets up universal_ble callbacks
+  BleCommunicationService() {
+    // --- Setup universal_ble Callbacks ---
+    UniversalBle.onScanResult = (device) {
+      _scanResultController.add(device);
+    };
+
+    UniversalBle.onConnectionChange = (deviceId, isConnected, error) {
+       debugPrint('Connection Change: $deviceId, Connected: $isConnected, Error: $error');
+       _isConnecting = false; // No longer connecting once callback is received
+       if (isConnected) {
+          _connectedDeviceId = deviceId;
+          _connectionStateController.add(true);
+           // Discover services immediately after connection
+          _setupNotifications(deviceId);
+       } else {
+          _connectedDeviceId = null;
+          _notificationsEnabled = false; // Reset flag
+          _connectionStateController.add(false);
+          _cleanupLastValues(); // Clear last values on disconnect
+       }
+    };
+
+    UniversalBle.onValueChange = (deviceId, characteristicId, value) {
+      if (_connectedDeviceId == deviceId && _notificationsEnabled) {
+         // Ensure characteristicId is lowercase for comparison if needed
+         _parseAndProcessData(characteristicId.toLowerCase(), value);
+      }
+    };
+
+     UniversalBle.onAvailabilityChange = (state) {
+       debugPrint("Bluetooth Availability changed: $state");
+       // Optionally notify AppState or handle state changes (e.g., disable buttons if off)
+     };
+  }
+
+  // Check Bluetooth Availability
+  Future<AvailabilityState> getBluetoothAvailability() async {
+      return await UniversalBle.getBluetoothAvailabilityState();
+  }
 
   // Scan for devices
-  Stream<List<ScanResult>> scanDevices({Duration timeout = const Duration(seconds: 5)}) {
-     // Ensure scanning is stopped before starting a new one
-     FlutterBluePlus.stopScan();
-     // Start scanning for devices advertising the specific service or name
-     // Note: Filtering by service UUID might be more reliable than name
-     return FlutterBluePlus.scanResults;
-     // FlutterBluePlus.startScan(
-     //    // withServices: [ENV_SENSE_SERVICE_UUID], // Filter by service (more reliable)
-     //     timeout: timeout
-     // );
-     // return FlutterBluePlus.scanResults; // Return the stream of results
+  Future<void> scanDevices({Duration timeout = const Duration(seconds: 10)}) async {
+     // universal_ble handles stopping previous scans internally
+     await UniversalBle.startScan(
+       // Optional: Add filters if needed later.
+       // For now, scan for everything. Remember web requires specifying services.
+       // scanFilter: ScanFilter(withServices: [ENV_SENSE_SERVICE_UUID])
+     );
+     debugPrint("BLE Scan started with universal_ble");
+     // Timeout is handled by AppState now, calling stopScan after duration
   }
 
   Future<void> stopScan() async {
-     await FlutterBluePlus.stopScan();
+     await UniversalBle.stopScan();
+     debugPrint("BLE Scan stopped with universal_ble");
   }
 
-  // Connect to a device
-  Future<bool> connect(BluetoothDevice device) async {
-    if (_connectedDevice != null) {
-       await disconnect(); // Disconnect previous device if any
-    }
-    try {
-       _connectionSubscription = device.connectionState.listen((state) {
-         if (state == BluetoothConnectionState.disconnected) {
-           debugPrint("BLE Disconnected from ${device.remoteId}");
-           _cleanupConnection();
-           // Optionally notify AppState about disconnection
-         } else if (state == BluetoothConnectionState.connected) {
-            debugPrint("BLE Connected to ${device.remoteId}");
-         }
-       });
-
-       await device.connect(autoConnect: false, timeout: Duration(seconds: 15));
-       _connectedDevice = device;
-       debugPrint("BLE Connection established, discovering services...");
-       await _setupNotifications(device);
-       return true;
-    } catch (e) {
-       debugPrint("BLE Connection failed: $e");
-       await _cleanupConnection();
+  // Connect to a device by its ID
+  Future<bool> connect(String deviceId) async {
+     if (_connectedDeviceId != null || _isConnecting) {
+       debugPrint("Already connected or connecting, disconnect first.");
        return false;
-    }
+     }
+     try {
+        _isConnecting = true;
+        _connectionStateController.add(false); // Indicate starting connection attempt
+        debugPrint("Attempting to connect to $deviceId with universal_ble...");
+        await UniversalBle.connect(deviceId);
+        // Connection result handled by onConnectionChange callback
+        // Consider adding a separate timeout mechanism in AppState if needed
+        // await Future.delayed(Duration(seconds: 16)); // Remove crude timeout check
+        // Rely on onConnectionChange to set _connectedDeviceId
+        // Let's return true optimistically, state will update via stream
+        return true; // Return true for now, failure handled by stream
+     } catch (e) {
+        _isConnecting = false;
+        debugPrint("universal_ble connect error: $e");
+        _connectionStateController.add(false); // Signal failure
+        return false;
+     }
   }
 
   // Disconnect
   Future<void> disconnect() async {
-    if (_connectedDevice != null) {
-        await _connectedDevice!.disconnect();
-        // The listener should call _cleanupConnection
+    if (_connectedDeviceId != null) {
+       final deviceToDisconnect = _connectedDeviceId!;
+       _connectedDeviceId = null; // Clear immediately
+       _notificationsEnabled = false;
+       _isConnecting = false; // Ensure connecting flag is false
+       try {
+           debugPrint("Disconnecting from $deviceToDisconnect with universal_ble...");
+           await UniversalBle.disconnect(deviceToDisconnect);
+           // State change handled by onConnectionChange callback
+       } catch (e) {
+           debugPrint("universal_ble disconnect error: $e");
+           // Ensure state is updated even if disconnect throws
+           _connectionStateController.add(false);
+           _cleanupLastValues();
+       }
     } else {
-        _cleanupConnection(); // Ensure cleanup even if no device was tracked
+       // Already disconnected or never connected
+       _connectionStateController.add(false);
+       _cleanupLastValues();
     }
   }
 
-  // Clean up resources
-  Future<void> _cleanupConnection() async {
-     await _connectionSubscription?.cancel();
-     _connectionSubscription = null;
-     for (var sub in _characteristicSubscriptions) {
-         await sub.cancel();
-     }
-     _characteristicSubscriptions.clear();
-     _connectedDevice = null;
-     // Reset last known values
+  // Clean up last known values
+  void _cleanupLastValues() {
      _lastTemp = null;
      _lastHumid = null;
      _lastLux = null;
      _lastNoiseRms = null;
-     debugPrint("BLE connection resources cleaned up.");
+     _lastTimestamp = null;
   }
 
-  // Setup notifications
-  Future<void> _setupNotifications(BluetoothDevice device) async {
-    List<BluetoothService> services = await device.discoverServices();
-    BluetoothService? envService = services.firstWhereOrNull((s) => s.uuid == ENV_SENSE_SERVICE_UUID);
+  // Setup notifications using universal_ble
+  Future<void> _setupNotifications(String deviceId) async {
+    _notificationsEnabled = false; // Reset flag before attempting setup
+    try {
+      debugPrint("Discovering services for $deviceId...");
+      // Discover services first (required before setNotifiable)
+      await UniversalBle.discoverServices(deviceId);
+      debugPrint("Services discovered for $deviceId. Setting notifications...");
 
-    if (envService == null) {
-      debugPrint("Error: Environmental Sensing Service not found!");
+      // Define the characteristics to enable notifications for
+      final characteristicsToEnable = [
+         TEMP_CHAR_UUID,
+         HUMID_CHAR_UUID,
+         LUX_CHAR_UUID,
+         NOISE_CHAR_UUID,
+      ];
+
+      bool anySuccess = false;
+      for (String charUuid in characteristicsToEnable) {
+         try {
+            // Use ENV_SENSE_SERVICE_UUID as the service UUID
+            await UniversalBle.setNotifiable(
+               deviceId,
+               ENV_SENSE_SERVICE_UUID,
+               charUuid,
+               BleInputProperty.notification, // Or .indication based on device
+            );
+            debugPrint("Notifications enabled for $charUuid on $deviceId");
+            anySuccess = true;
+            await Future.delayed(Duration(milliseconds: 100)); // Small delay
+         } catch (e) {
+            debugPrint("Error enabling notifications for $charUuid on $deviceId: $e");
+         }
+      }
+
+      if (anySuccess) {
+         _notificationsEnabled = true; // Set flag only if at least one succeeded
+         debugPrint("Notification setup process complete for $deviceId.");
+      } else {
+          debugPrint("Warning: Failed to subscribe to any notifications for $deviceId.");
+          // Consider disconnecting if no notifications could be enabled
+          // await disconnect();
+      }
+
+    } catch (e) {
+      debugPrint("Error during service discovery or notification setup for $deviceId: $e");
+      // Disconnect if setup fails critically
       await disconnect();
-      return;
     }
-    debugPrint("Environmental Sensing Service found.");
-
-     _characteristicSubscriptions.clear(); // Clear previous subs
-
-     for (BluetoothCharacteristic characteristic in envService.characteristics) {
-        if (characteristic.properties.notify) {
-           // Check if it's one of the characteristics we care about
-           if ([TEMP_CHAR_UUID, HUMID_CHAR_UUID, LUX_CHAR_UUID, NOISE_CHAR_UUID].contains(characteristic.uuid)) {
-              try {
-                  await characteristic.setNotifyValue(true);
-                  debugPrint("Notifications enabled for ${characteristic.uuid}");
-
-                  var sub = characteristic.onValueReceived.listen((value) {
-                     _parseAndProcessData(characteristic.uuid, value);
-                  }, onError: (error) {
-                     debugPrint("Error receiving notification for ${characteristic.uuid}: $error");
-                     // Consider disconnecting on error
-                  });
-                   _characteristicSubscriptions.add(sub);
-                   await Future.delayed(Duration(milliseconds: 100)); // Small delay between enables
-
-              } catch (e) {
-                  debugPrint("Error enabling notifications for ${characteristic.uuid}: $e");
-              }
-           }
-        }
-     }
-     if (_characteristicSubscriptions.isEmpty) {
-        debugPrint("Warning: Failed to subscribe to any notifications.");
-     } else {
-         debugPrint("Notification setup complete for ${_characteristicSubscriptions.length} characteristics.");
-     }
   }
 
-  // Parse incoming data
-  void _parseAndProcessData(Guid characteristicUuid, List<int> data) {
+  // Parse incoming data (Characteristic UUID should be lowercase from onValueChange)
+  void _parseAndProcessData(String characteristicUuid, Uint8List data) {
      if (data.isEmpty) return;
-     ByteData byteData = ByteData.sublistView(Uint8List.fromList(data));
+     ByteData byteData = ByteData.sublistView(data);
      DateTime now = DateTime.now();
      bool updated = false;
 
+     // Use lowercase UUIDs for comparison
+     final tempUuidLower = TEMP_CHAR_UUID.toLowerCase();
+     final humidUuidLower = HUMID_CHAR_UUID.toLowerCase();
+     final luxUuidLower = LUX_CHAR_UUID.toLowerCase();
+     final noiseUuidLower = NOISE_CHAR_UUID.toLowerCase();
+
      try {
-         if (characteristicUuid == TEMP_CHAR_UUID && data.length >= 2) {
+         if (characteristicUuid == tempUuidLower && data.length >= 2) {
            _lastTemp = byteData.getInt16(0, Endian.little) / 100.0;
            updated = true;
-         } else if (characteristicUuid == HUMID_CHAR_UUID && data.length >= 2) {
+         } else if (characteristicUuid == humidUuidLower && data.length >= 2) {
            _lastHumid = byteData.getUint16(0, Endian.little) / 100.0;
-            updated = true;
-         } else if (characteristicUuid == LUX_CHAR_UUID && data.length >= 3) {
-           // Read uint24 (3 bytes) - MicroPython packs as little-endian
+           updated = true;
+         } else if (characteristicUuid == luxUuidLower && data.length >= 3) {
            int rawLux = data[0] | (data[1] << 8) | (data[2] << 16);
            _lastLux = rawLux / 100.0;
-            updated = true;
-         } else if (characteristicUuid == NOISE_CHAR_UUID && data.length >= 2) {
-           _lastNoiseRms = byteData.getInt16(0, Endian.little) / 10.0; // Get RMS
-            updated = true;
+           updated = true;
+         } else if (characteristicUuid == noiseUuidLower && data.length >= 2) {
+           _lastNoiseRms = byteData.getInt16(0, Endian.little) / 10.0;
+           updated = true;
          }
      } catch (e) {
           debugPrint("Error parsing data for $characteristicUuid: $e. Data: $data");
-          return; // Stop processing if parsing fails
+          return;
      }
 
-     // If any value was updated, maybe emit a full SensorData object
-     // Using a simple approach here: emit whenever any value updates, using last known values for others.
-     // A debouncer (Option B mentioned before) would be more robust.
      if (updated) {
         _lastTimestamp = now;
-        // Only emit if we have at least one valid reading for each type eventually
-        // (or decide how to handle missing initial values)
         if (_lastTemp != null && _lastHumid != null && _lastLux != null && _lastNoiseRms != null) {
-             // --- Noise Data Decision ---
-             // Option 1: Send raw RMS value from BLE
-             double noiseValueToSend = _lastNoiseRms!;
-
-             // Option 2: Convert RMS to dB here (similar to AppState previous logic)
-             // double calculatedDb;
-             // if (_lastNoiseRms! > 0) {
-             //    calculatedDb = 20 * (log(_lastNoiseRms!) / log(10));
-             // } else {
-             //    calculatedDb = 0.0;
-             // }
-             // if (calculatedDb.isNaN || calculatedDb.isInfinite) calculatedDb = 0.0;
-             // double noiseValueToSend = calculatedDb;
-             // --- End Noise Data Decision ---
-
-
-            final sensorData = SensorData(
-                // id is null as it comes from BLE, not DB yet
-                timestamp: _lastTimestamp!,
-                temperature: _lastTemp!,
-                humidity: _lastHumid!,
-                lightIntensity: _lastLux!,
-                // Use the chosen noise value
-                noiseDb: noiseValueToSend, // Rename field if sending RMS? Or keep as dB after conversion?
-            );
-            _sensorDataController.add(sensorData);
+           double noiseValueToSend = _lastNoiseRms!;
+           final sensorData = SensorData(
+               timestamp: _lastTimestamp!,
+               temperature: _lastTemp!,
+               humidity: _lastHumid!,
+               lightIntensity: _lastLux!,
+               noiseDb: noiseValueToSend,
+           );
+           if (!_sensorDataController.isClosed) {
+             _sensorDataController.add(sensorData);
+           }
         }
      }
   }
 
   // Dispose method
   void dispose() {
-    disconnect();
-    _sensorDataController.close();
-     debugPrint("BleCommunicationService disposed.");
+     // It's good practice to remove listeners if the package provided a way,
+     // but universal_ble uses static callbacks. We mostly need to close streams.
+     _scanResultController.close();
+     _connectionStateController.close();
+     _sensorDataController.close();
+     // Attempt disconnect if connected
+     if (_connectedDeviceId != null) {
+        UniversalBle.disconnect(_connectedDeviceId!);
+     }
+     debugPrint("BleCommunicationService (universal_ble) disposed.");
   }
 }
