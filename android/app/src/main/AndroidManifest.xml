@@ -42,4 +42,18 @@
             <data android:mimeType="text/plain"/>
         </intent>
     </queries>
+    <!-- Request legacy Bluetooth permissions on older devices. -->
+    <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
+
+    <!-- Request nearby devices permissions on newer devices. -->
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_ADVERTISE" /> <!-- If your app ever needs to advertise -->
+
+    <!-- Request location permissions - necessary for BLE scanning on Android 11 and below -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="30"/>
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" android:maxSdkVersion="30" />
+    <!-- Add android:required="false" if location is only needed for BLE -->
+    <uses-feature android:name="android.hardware.bluetooth_le" android:required="true"/>
 </manifest>

@@ -105,13 +105,21 @@ class MyApp extends StatelessWidget {
               ),
               ToggleConnectionIntent: CallbackAction<ToggleConnectionIntent>(
                 onInvoke: (intent) {
-                  appState.toggleConnection();
+                  if (Platform.isAndroid || Platform.isIOS) {
+                    appState.toggleBleConnection();
+                  } else {
+                    appState.toggleTcpConnection();
+                  }
                   return null;
                 },
               ),
               ScanDevicesIntent: CallbackAction<ScanDevicesIntent>(
                 onInvoke: (intent) {
-                  appState.scanDevices();
+                  if (Platform.isAndroid || Platform.isIOS) {
+                    appState.scanBleDevices();
+                  } else {
+                    appState.scanTcpNetwork();
+                  }
                   return null;
                 },
               ),

@@ -42,7 +42,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // Ticker 会定期触发 setState，强制图表重绘以更新时间窗口
     _ticker = createTicker((_) {
       // 只有在主页且有图表数据时才触发重绘
-      if (_selectedIndex == 0 && appState.latestReadings.isNotEmpty && mounted) {
+      if (_selectedIndex == 0 && appState.isConnected && appState.latestReadings.isNotEmpty && mounted) {
         setState(() {
           // 不需要在这里做任何事，只需要触发 setState 
           // 让 _buildChartSection 重新计算 minX/maxX
@@ -66,25 +66,58 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     const double compactWidth = 600; // Material 3 breakpoint for compact
     final bool centerTitle = screenWidth >= compactWidth;
 
-    // 创建状态指示器
+    // --- Create more detailed status indicator ---
+    Widget buildStatusChip(String label, bool connected, bool connecting) {
+        IconData icon;
+        Color bgColor;
+        Color fgColor;
+        if (connecting) {
+            icon = Icons.sync; // Or use a CircularProgressIndicator inside
+            bgColor = Theme.of(context).colorScheme.secondaryContainer;
+            fgColor = Theme.of(context).colorScheme.onSecondaryContainer;
+        } else if (connected) {
+            icon = Icons.check_circle;
+            bgColor = Colors.green.shade100;
+            fgColor = Colors.green.shade900;
+        } else {
+            icon = Icons.cancel;
+            bgColor = Theme.of(context).colorScheme.errorContainer;
+            fgColor = Theme.of(context).colorScheme.onErrorContainer;
+        }
+        return Chip(
+            avatar: Icon(icon, size: 16, color: fgColor),
+            label: Text(label, style: TextStyle(fontSize: 11, color: fgColor)),
+            backgroundColor: bgColor,
+            padding: EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            visualDensity: VisualDensity.compact,
+            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap, // Reduce padding
+        );
+    }
+
     final statusIndicator = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          appState.isConnected ? Icons.wifi : Icons.wifi_off,
-          color: appState.isConnected ? Colors.green : Theme.of(context).colorScheme.error, // Use theme color for error
-          size: 20,
-        ),
-        const SizedBox(width: 4),
-        Text(appState.statusMessage, style: Theme.of(context).textTheme.bodySmall),
+        buildStatusChip("TCP", appState.isTcpConnected, appState.isConnectingTcp),
+        const SizedBox(width: 6),
+        // Only show BLE status on mobile platforms
+        if (Platform.isAndroid || Platform.isIOS) ...[
+            buildStatusChip("BLE", appState.isBleConnected, appState.isConnectingBle),
+        ],
+        const SizedBox(width: 8), // Add some padding at the end
+        // Optional: Display general status message if needed
+        // Flexible(child: Text(appState.statusMessage, style: Theme.of(context).textTheme.bodySmall, overflow: TextOverflow.ellipsis)),
       ],
     );
+    // --- End of detailed status indicator ---
 
     if (Platform.isIOS) {
       // iOS风格的导航栏
       return CupertinoNavigationBar(
         middle: const Text('环境监测上位机'),
-        trailing: statusIndicator,
+        trailing: Padding( // Add padding for iOS trailing widget
+           padding: const EdgeInsets.only(right: 8.0),
+           child: statusIndicator,
+        ),
       );
     } else {
       // Material 3 风格的AppBar
@@ -349,7 +382,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
   // 构建通信控制区域
   Widget _buildControlSection(BuildContext context, AppState appState) {
-    final bool isInputEnabled = !appState.isConnected && !appState.isConnecting && !appState.isScanning;
+    // Determine enabled state based on *any* connection/scan activity
+    final bool isBusy = appState.isConnectingTcp || appState.isConnectingBle || appState.isScanningBle;
     final bool isSmallScreen = MediaQuery.of(context).size.width < 600;
 
     // Helper for adaptive text field
@@ -409,67 +443,189 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
        );
     }
 
+    // --- Build the list of control widgets ---
+    List<Widget> tcpControls = [
+       buildAdaptiveTextField(
+         controller: _ipController,
+         label: 'TCP IP', // Add TCP label
+         hint: '192.168.x.x',
+         enabled: !isBusy && !appState.isTcpConnected, // Disable if busy or connected via TCP
+         onSettingChanged: (value) => appState.updateSetting('defaultIpAddress', value),
+         minWidth: 100,
+         maxWidth: 150,
+       ),
+       buildAdaptiveTextField(
+         controller: _portController,
+         label: 'Port',
+         hint: 'e.g. 8888',
+         keyboardType: TextInputType.number,
+         enabled: !isBusy && !appState.isTcpConnected,
+         onSettingChanged: (value) => appState.updateSetting('defaultPort', value),
+         minWidth: 60,
+         maxWidth: 80,
+       ),
+       // Optional TCP Scan button (can be confusing with BLE scan)
+       // _buildAdaptiveButton(
+       //   label: '扫网段',
+       //   icon: Icons.wifi_find,
+       //   onPressed: () => appState.scanTcpNetwork(),
+       //   isLoading: false, // Add isScanningTcp state if needed
+       //   enabled: !isBusy && !appState.isConnected, // Disable if any connection active
+       //   type: 'outlined',
+       // ),
+       _buildAdaptiveButton(
+         label: appState.isTcpConnected ? '断开TCP' : '连接TCP',
+         icon: appState.isTcpConnected ? Icons.link_off : Icons.link,
+         onPressed: () => appState.toggleTcpConnection(),
+         isLoading: appState.isConnectingTcp,
+         enabled: !isBusy, // Disable only if busy
+         type: 'filled',
+         color: appState.isTcpConnected ? Theme.of(context).colorScheme.error : null,
+       ),
+    ];
+
+    List<Widget> bleControls = [];
+    // Only show BLE controls on mobile platforms
+    if (Platform.isAndroid || Platform.isIOS) {
+        bleControls = [
+            _buildAdaptiveButton(
+              label: '扫描BLE',
+              icon: Icons.bluetooth_searching,
+              onPressed: () => _showBleScanResults(context, appState), // Show modal
+              isLoading: appState.isScanningBle,
+              // Disable scan if busy or already connected via BLE
+              enabled: !isBusy && !appState.isBleConnected,
+              type: 'tonal',
+            ),
+             // Show selected device if any
+             if (appState.selectedDevice != null)
+               Chip(
+                 label: Text(appState.selectedDevice!.platformName.isNotEmpty
+                      ? appState.selectedDevice!.platformName
+                      : appState.selectedDevice!.remoteId.toString(),
+                      overflow: TextOverflow.ellipsis,
+                 ),
+                 avatar: Icon(Icons.bluetooth, size: 16, color: Theme.of(context).colorScheme.primary),
+                 onDeleted: appState.isBleConnected ? null : () { // Allow clearing selection only if not connected
+                     appState.selectDevice(null); // Assuming null clears selection
+                 },
+                 deleteIcon: appState.isBleConnected ? null : Icon(Icons.close, size: 14),
+                 visualDensity: VisualDensity.compact,
+                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+               ),
+            _buildAdaptiveButton(
+              label: appState.isBleConnected ? '断开BLE' : '连接BLE',
+              icon: appState.isBleConnected ? Icons.bluetooth_disabled : Icons.bluetooth_connected,
+              onPressed: () => appState.toggleBleConnection(),
+              isLoading: appState.isConnectingBle,
+               // Disable connect if busy or no device selected (and not already connected)
+              enabled: !isBusy && (appState.selectedDevice != null || appState.isBleConnected),
+              type: 'filled', // Use primary color for connect
+              color: appState.isBleConnected ? Theme.of(context).colorScheme.error : null,
+            ),
+        ];
+    }
+
     return Card(
-      elevation: 1, // Lower elevation
-      // Use filled/outlined style for better M3 feel
-      // color: Theme.of(context).colorScheme.surfaceVariant, // Filled Card
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12.0), // M3 standard radius
-          // side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant) // Outlined Card
-      ),
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Center(
           child: Wrap(
-            spacing: 16.0,
-            runSpacing: 12.0, // Slightly less run spacing
-            alignment: WrapAlignment.spaceAround, // Better distribution
+            spacing: 12.0, // Spacing between elements in a row
+            runSpacing: 12.0, // Spacing between rows
+            alignment: WrapAlignment.spaceEvenly, // Distribute space
             crossAxisAlignment: WrapCrossAlignment.center,
+            // Combine controls. Show TCP first, then BLE if available.
             children: [
-              buildAdaptiveTextField(
-                controller: _ipController,
-                label: 'IP 地址',
-                hint: '192.168.x.x',
-                enabled: isInputEnabled,
-                onSettingChanged: (value) => appState.updateSetting('defaultIpAddress', value),
-                minWidth: 120,
-                maxWidth: 180,
-              ),
-              buildAdaptiveTextField(
-                controller: _portController,
-                label: '端口',
-                hint: 'e.g. 8888',
-                keyboardType: TextInputType.number,
-                enabled: isInputEnabled,
-                onSettingChanged: (value) => appState.updateSetting('defaultPort', value),
-                minWidth: 80,
-                maxWidth: 100,
-              ),
-              // Use tonal or outlined for less prominent actions
-              _buildAdaptiveButton(
-                label: '扫描', // Shorter label if possible
-                icon: Icons.search,
-                onPressed: () => appState.scanDevices(),
-                isLoading: appState.isScanning,
-                enabled: !appState.isConnecting && !appState.isScanning && !appState.isConnected,
-                type: 'tonal', // Use tonal button
-              ),
-              _buildAdaptiveButton(
-                label: appState.isConnected ? '断开' : '连接',
-                icon: appState.isConnected ? Icons.link_off : Icons.link,
-                onPressed: () => appState.toggleConnection(),
-                isLoading: appState.isConnecting,
-                enabled: !appState.isScanning,
-                // Use FilledButton for the primary action
-                type: 'filled', 
-                // Use theme error color for disconnect indication
-                color: appState.isConnected ? Theme.of(context).colorScheme.error : null, 
-              ),
+                ...tcpControls,
+                 // Add a visual separator on mobile if both are shown
+                 if (Platform.isAndroid || Platform.isIOS)
+                    VerticalDivider(width: 20, thickness: 1),
+                ...bleControls,
             ],
           ),
         ),
       ),
     );
+  }
+
+  // --- Helper to show BLE Scan Results Modal ---
+  void _showBleScanResults(BuildContext context, AppState appState) {
+     // Start scanning when the modal is about to be shown
+     appState.scanBleDevices();
+
+     showModalBottomSheet(
+       context: context,
+       isScrollControlled: true, // Allows modal to take more height
+       builder: (modalContext) {
+         // Use a Consumer inside the modal to react to scan result updates
+         return Consumer<AppState>(
+            builder: (context, state, child) {
+               return DraggableScrollableSheet( // Makes it resizable
+                  expand: false, // Doesn't take full screen initially
+                  initialChildSize: 0.5, // Start at half height
+                  minChildSize: 0.3,
+                  maxChildSize: 0.8,
+                  builder: (_, scrollController) {
+                      return Container(
+                         padding: EdgeInsets.all(16),
+                         child: Column(
+                           mainAxisSize: MainAxisSize.min,
+                           children: [
+                              Row(
+                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                 children: [
+                                     Text("扫描到的 BLE 设备", style: Theme.of(context).textTheme.titleLarge),
+                                     // Show stop button or indicator
+                                     state.isScanningBle
+                                         ? TextButton.icon(
+                                               icon: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                                               label: Text("停止"),
+                                               onPressed: () => state.stopBleScan(),
+                                         )
+                                         : IconButton(icon: Icon(Icons.close), onPressed: () => Navigator.pop(modalContext)),
+                                 ],
+                              ),
+                              Divider(),
+                              Expanded(
+                                 child: state.scanResults.isEmpty && !state.isScanningBle
+                                      ? Center(child: Text("未找到设备。请确保设备已开启并靠近。"))
+                                      : ListView.builder(
+                                           controller: scrollController, // Link controller
+                                           itemCount: state.scanResults.length,
+                                           itemBuilder: (context, index) {
+                                             final result = state.scanResults[index];
+                                             final deviceName = result.device.platformName.isNotEmpty
+                                                 ? result.device.platformName
+                                                 : "Unknown Device";
+                                             return ListTile(
+                                                leading: Icon(Icons.bluetooth),
+                                                title: Text(deviceName),
+                                                subtitle: Text(result.device.remoteId.toString()),
+                                                trailing: Text("${result.rssi} dBm"),
+                                                onTap: () {
+                                                   state.stopBleScan(); // Stop scanning on selection
+                                                   state.selectDevice(result.device); // Select in AppState
+                                                   Navigator.pop(modalContext); // Close modal
+                                                },
+                                             );
+                                           },
+                                         ),
+                              ),
+                           ],
+                         ),
+                      );
+                  },
+               );
+            }
+         );
+       },
+     ).whenComplete(() {
+        // Ensure scan stops when modal is dismissed externally
+        appState.stopBleScan();
+     });
   }
 
   // 构建实时数据显示区域
@@ -549,6 +705,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                  Row(
                    mainAxisAlignment: MainAxisAlignment.end,
                    children: [
+                      // Show connection type icon next to time
+                      Icon(
+                          appState.activeConnectionType == ActiveConnectionType.tcp ? Icons.wifi :
+                          (appState.activeConnectionType == ActiveConnectionType.ble ? Icons.bluetooth : Icons.cloud_off),
+                          size: 12, color: colorScheme.outline
+                      ),
+                     const SizedBox(width: 4),
                      Icon(Icons.access_time, size: 12, color: colorScheme.outline),
                      const SizedBox(width: 4),
                      Text(
@@ -690,7 +853,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     return dataList.map((data) {
       final x = data.timestamp.millisecondsSinceEpoch.toDouble();
       final y = getY(data);
-      return FlSpot(x, y);
+      // Add a check for non-finite values which can crash charts
+      if (y.isFinite) {
+        return FlSpot(x, y);
+      } else {
+        // Return a spot at 0 or handle it differently if y is NaN/Infinity
+        debugPrint("Warning: Invalid y value ($y) for chart at timestamp $x. Replacing with 0.");
+        return FlSpot(x, 0);
+      }
     }).toList();
   }
 }

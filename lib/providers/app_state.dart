@@ -1,355 +1,617 @@
 import 'dart:async';
-import 'dart:math'; // 导入 dart:math 库
+// Needed for platform checks
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:flutter_blue_plus/flutter_blue_plus.dart'; // Import flutter_blue_plus
+import 'package:permission_handler/permission_handler.dart';
 import '../models/sensor_data.dart';
 import '../models/settings_model.dart';
-import '../services/communication_service.dart';
+// Rename original CommunicationService for clarity
+import '../services/communication_service.dart' as tcp_service;
+import '../services/BleCommunicationService.dart'; // Import BLE service
 import '../services/database_helper.dart';
 import '../services/settings_service.dart';
 
+// Enum to track the currently active connection type for data sourcing
+enum ActiveConnectionType { none, tcp, ble }
+
 class AppState extends ChangeNotifier {
-  final CommunicationService _commService = CommunicationService();
+  // Instantiate BOTH services
+  final tcp_service.CommunicationService _tcpCommService = tcp_service.CommunicationService();
+  late BleCommunicationService _bleCommService; // Initialize in constructor
+
   final DatabaseHelper _dbHelper = DatabaseHelper.instance;
   final SettingsService _settingsService = SettingsService();
 
-  // --- 应用设置 ---
-  late AppSettings _settings; // 将在初始化时加载
+  // --- Application Settings (Keep as is) ---
+  late AppSettings _settings;
   AppSettings get settings => _settings;
-
-  // 主题模式
   ThemeMode get themeMode => _settings.themeMode;
-
-  // 是否使用动态颜色
   bool get useDynamicColor => _settings.useDynamicColor;
-
-  // 数据刷新间隔（秒）
   int get dataRefreshInterval => _settings.dataRefreshInterval;
-
-  // 图表数据点数量
   int get chartDataPoints => _settings.chartDataPoints;
 
-  // --- 导航状态 ---
+  // --- Navigation State (Keep as is) ---
   int _currentNavigationIndex = 0;
   int get currentNavigationIndex => _currentNavigationIndex;
-
-  // 导航到指定页面
   void navigateTo(int index) {
-    if (index >= 0 && index <= 2) { // 限制在有效范围内
+    if (index >= 0 && index <= 2) {
       _currentNavigationIndex = index;
       notifyListeners();
     }
   }
 
-  // 构造函数中初始化设置
+  // --- Combined Connection State ---
+  // Separate states for each type
+  bool _isTcpConnected = false;
+  bool _isBleConnected = false;
+  bool _isConnectingTcp = false;
+  bool _isConnectingBle = false;
+  bool _isScanningBle = false; // Only BLE scanning state needed
+
+  // Flags to indicate which connection is the active data source
+  ActiveConnectionType _activeConnectionType = ActiveConnectionType.none;
+  ActiveConnectionType get activeConnectionType => _activeConnectionType;
+
+  // Combined status accessors (can be refined)
+  bool get isConnected => _isTcpConnected || _isBleConnected;
+  bool get isConnecting => _isConnectingTcp || _isConnectingBle;
+
+  // Detailed status message
+  String _statusMessage = "就绪";
+  String get statusMessage => _statusMessage;
+
+  // --- BLE Specific State ---
+  List<ScanResult> _scanResults = [];
+  List<ScanResult> get scanResults => _scanResults;
+  BluetoothDevice? _selectedDevice;
+  BluetoothDevice? get selectedDevice => _selectedDevice;
+  StreamSubscription<List<ScanResult>>? _scanSubscription;
+  StreamSubscription<SensorData>? _bleDataSubscription;
+
+  // Accessors for specific states needed by UI
+  bool get isTcpConnected => _isTcpConnected;
+  bool get isBleConnected => _isBleConnected;
+  bool get isConnectingTcp => _isConnectingTcp;
+  bool get isConnectingBle => _isConnectingBle;
+  bool get isScanningBle => _isScanningBle;
+
+
+  // --- Realtime Data & Chart Buffer (Keep as is) ---
+  SensorData? _currentData;
+  SensorData? get currentData => _currentData;
+  List<SensorData> _chartDataBuffer = [];
+  List<SensorData> get latestReadings => _chartDataBuffer;
+
+  // --- TCP Data Fetching Timer (Keep as is) ---
+  Timer? _tcpDataFetchTimer;
+  int _consecutiveReadFailures = 0;
+  final int _maxReadFailures = 3;
+
+  // Constructor
   AppState() {
-    _initSettings();
+    _bleCommService = BleCommunicationService(); // Initialize BLE service
+    _initSettings().then((_) {
+       // Listen to BLE data stream AFTER settings are loaded (if needed)
+       _listenToBleData();
+    });
   }
 
-  // 初始化设置
+  // Initialize Settings (Keep as is)
   Future<void> _initSettings() async {
     _settings = await _settingsService.loadSettings();
-    notifyListeners();
+    // Don't notify yet, wait for constructor end or explicit call
   }
 
-  // 更新设置
+  // Update/Reset Settings (Keep as is)
   Future<void> updateSettings(AppSettings newSettings) async {
     _settings = newSettings;
     await _settingsService.saveSettings(newSettings);
     notifyListeners();
   }
-
-  // 更新单个设置项
   Future<void> updateSetting<T>(String key, T value) async {
     await _settingsService.updateSetting(key, value);
-    _settings = await _settingsService.loadSettings(); // 重新加载设置
+    _settings = await _settingsService.loadSettings();
     notifyListeners();
   }
-
-  // 重置设置为默认值
   Future<void> resetSettings() async {
     await _settingsService.resetSettings();
     _settings = await _settingsService.loadSettings();
     notifyListeners();
   }
 
-  // --- 连接状态 ---
-  bool _isConnected = false;
-  bool get isConnected => _isConnected;
 
-  bool _isConnecting = false;
-  bool get isConnecting => _isConnecting;
-
-  String _statusMessage = "就绪";
-  String get statusMessage => _statusMessage;
-
-  // --- 输入参数 ---
-
-  // --- 设备扫描 ---
-  bool _isScanning = false;
-  bool get isScanning => _isScanning;
-
-  List<String> _availableDevices = [];
-  List<String> get availableDevices => _availableDevices;
-
-  // --- 实时数据 ---
-  SensorData? _currentData;
-  SensorData? get currentData => _currentData;
-
-  // --- 图表数据 ---
-  List<SensorData> _chartDataBuffer = [];
-  List<SensorData> get latestReadings => _chartDataBuffer; // Getter 直接返回缓冲区
-
-  // --- 数据接收定时器 ---
-  Timer? _dataFetchTimer;
-  int _consecutiveReadFailures = 0; // 连续读取失败计数器
-  final int _maxReadFailures = 3; // 最大允许连续失败次数
-
-  // --- 方法 ---
-
-  // 更新状态消息
-  void _updateStatus(String message) {
+  // Update status message
+  void _updateStatus(String message, {bool notify = true}) {
     _statusMessage = message;
-    notifyListeners();
+    if (notify) notifyListeners();
   }
 
-  // 切换连接状态
-  Future<void> toggleConnection() async {
-    if (_isConnecting || _isScanning) return; // 防止重复操作
+  // --- TCP Connection Logic ---
+  Future<void> toggleTcpConnection() async {
+     if (_isConnectingTcp || _isConnectingBle || _isScanningBle) return; // Prevent overlap
 
-    if (_isConnected) {
-      await _disconnect();
-    } else {
-      await _connect();
-    }
+     // If BLE is active, disconnect it first (policy: only one active connection)
+     if (_isBleConnected) {
+        await toggleBleConnection(); // Disconnect BLE
+        await Future.delayed(Duration(milliseconds: 500)); // Give time for cleanup
+     }
+
+     if (_isTcpConnected) {
+       await _disconnectTcp();
+     } else {
+       await _connectTcp();
+     }
   }
 
-  // 连接逻辑
-  Future<void> _connect() async {
-    _isConnecting = true;
-    _updateStatus("正在连接到 ${_settings.defaultIpAddress}:${_settings.defaultPort}...");
+  Future<void> _connectTcp() async {
+    _isConnectingTcp = true;
+    _updateStatus("正在连接 TCP 到 ${_settings.defaultIpAddress}:${_settings.defaultPort}...");
 
     final portInt = int.tryParse(_settings.defaultPort);
     if (portInt == null) {
-      _updateStatus("端口号无效");
-      _isConnecting = false;
+      _updateStatus("TCP 端口号无效");
+      _isConnectingTcp = false;
       notifyListeners();
       return;
     }
 
-    final success = await _commService.connect(_settings.defaultIpAddress, portInt);
-    _isConnecting = false;
+    // Use the renamed service instance
+    final success = await _tcpCommService.connect(_settings.defaultIpAddress, portInt);
+    _isConnectingTcp = false;
 
     if (success) {
-      _isConnected = true;
-      _updateStatus("已连接到 ${_settings.defaultIpAddress}:${_settings.defaultPort}");
-      _consecutiveReadFailures = 0; // 连接成功，重置失败计数器
-      _startDataFetching(); // 开始定时获取数据
-      await loadLatestReadingsForChart(limit: chartDataPoints); // 加载初始图表数据到缓冲区
+      _isTcpConnected = true;
+      _activeConnectionType = ActiveConnectionType.tcp; // Set TCP as active
+      _updateStatus("TCP 已连接到 ${_settings.defaultIpAddress}:${_settings.defaultPort}");
+      _consecutiveReadFailures = 0;
+      _startTcpDataFetching(); // Start TCP polling
+      await loadLatestReadingsForChart(limit: chartDataPoints);
     } else {
-      _isConnected = false;
-      _updateStatus("连接失败");
+      _isTcpConnected = false;
+      _activeConnectionType = ActiveConnectionType.none;
+      _updateStatus("TCP 连接失败");
     }
-    notifyListeners(); // 更新连接按钮状态等
-  }
-
-  // 断开连接逻辑
-  Future<void> _disconnect() async {
-    _stopDataFetching(); // 停止获取数据
-    await _commService.disconnect();
-    _isConnected = false;
-    _currentData = null; // 清空当前数据
-    _chartDataBuffer = []; // 清空图表缓冲区
-    _updateStatus("已断开连接");
-    _consecutiveReadFailures = 0; // 手动断开，重置失败计数器
     notifyListeners();
   }
 
-  // 开始定时获取数据
-  void _startDataFetching() {
-    _stopDataFetching(); // 先停止旧的定时器（如果有）
-    _fetchData(); // 立即获取一次
+  Future<void> _disconnectTcp() async {
+    _stopTcpDataFetching();
+    await _tcpCommService.disconnect(); // Use renamed service
+    _isTcpConnected = false;
+     if (_activeConnectionType == ActiveConnectionType.tcp) {
+       _activeConnectionType = ActiveConnectionType.none;
+       _currentData = null; // Clear data only if it was the active source
+       _chartDataBuffer = [];
+     }
+    _updateStatus("TCP 已断开连接");
+    _consecutiveReadFailures = 0;
+    notifyListeners();
+  }
 
-    // 使用设置中的刷新间隔
-    _dataFetchTimer = Timer.periodic(Duration(seconds: dataRefreshInterval), (timer) {
-       if (!_isConnected) {
-         timer.cancel(); // 如果断开连接，停止定时器
+  // Start TCP data fetching (rename original _startDataFetching)
+  void _startTcpDataFetching() {
+    _stopTcpDataFetching();
+    _fetchTcpData(); // Immediate fetch
+
+    _tcpDataFetchTimer = Timer.periodic(Duration(seconds: dataRefreshInterval), (timer) {
+       if (!_isTcpConnected || _activeConnectionType != ActiveConnectionType.tcp) {
+         timer.cancel();
          return;
        }
-      _fetchData();
+      _fetchTcpData();
     });
   }
 
-  // 停止定时获取数据
-  void _stopDataFetching() {
-    _dataFetchTimer?.cancel();
-    _dataFetchTimer = null;
+  // Stop TCP data fetching (rename original _stopDataFetching)
+  void _stopTcpDataFetching() {
+    _tcpDataFetchTimer?.cancel();
+    _tcpDataFetchTimer = null;
   }
 
-  // 获取并处理单次数据
-  Future<void> _fetchData() async {
-    if (!_isConnected) return;
+  // Fetch TCP data (rename original _fetchData)
+  Future<void> _fetchTcpData() async {
+    if (!_isTcpConnected || _activeConnectionType != ActiveConnectionType.tcp) return;
 
-    final dataMap = await _commService.readData();
+    final dataMap = await _tcpCommService.readData(); // Use renamed service
     if (dataMap != null) {
       try {
-         // 从 dataMap 获取原始 RMS 值 (CommunicationService 已将其映射到 'noiseDb')
-         final double rawRms = (dataMap['noiseDb'] ?? 0.0).toDouble();
+         final double rawRms = (dataMap['noiseDb'] ?? 0.0).toDouble(); // noiseDb field holds RMS here
 
-         // 执行 RMS 到 dB 的转换
-         double calculatedDb;
-         if (rawRms > 0) {
-           // 使用 log10(rms) = log(rms) / log(10)
-           // log(10) 是自然对数 ln(10)
-           calculatedDb = 20 * (log(rawRms) / log(10)); 
-         } else {
-           calculatedDb = 0.0; // 处理 RMS <= 0 的情况，设为 0 dB
-         }
-         // 确保 dB 值不是 NaN 或无限大
-         if (calculatedDb.isNaN || calculatedDb.isInfinite) {
-             calculatedDb = 0.0;
-         }
-
-         // 使用当前时间戳和计算出的 dB 值创建 SensorData 对象
          final newData = SensorData(
-             timestamp: DateTime.now(), // 使用接收数据的时间
-             // 使用计算出的 dB 值
-             noiseDb: calculatedDb, 
+             timestamp: DateTime.now(),
+             noiseDb: rawRms, // Store RMS temporarily
              temperature: (dataMap['temperature'] ?? 0.0).toDouble(),
              humidity: (dataMap['humidity'] ?? 0.0).toDouble(),
              lightIntensity: (dataMap['light_intensity'] ?? 0.0).toDouble(),
          );
 
-        _currentData = newData;
-        await _dbHelper.insertReading(newData); // 存入数据库 (现在是 dB 值)
+        _processReceivedData(newData, ActiveConnectionType.tcp); // Use common processor
 
-        // --- 更新图表缓冲区 ---
-        _chartDataBuffer.add(newData); // 添加新数据到末尾 (dB 值)
-        // 如果缓冲区超过大小，移除最旧的数据（列表开头）
-        if (_chartDataBuffer.length > chartDataPoints) {
-          _chartDataBuffer.removeAt(0);
-        }
-        // ----------------------
-        _consecutiveReadFailures = 0; // 读取成功，重置计数器
-        notifyListeners(); // 更新实时数据 UI
+        _consecutiveReadFailures = 0;
+        // _updateStatus("TCP 数据已更新"); // Optional status update
+        notifyListeners(); // Notify UI of new data
       } catch (e) {
-         debugPrint ("处理接收到的数据时出错: $e"); // Use logger in production
-         _updateStatus("数据处理错误");
-         // 数据处理错误不计入连接失败
+         debugPrint("处理 TCP 数据时出错: $e");
+         _updateStatus("TCP 数据处理错误");
       }
     } else {
-      // 读取数据失败 (readData 返回 null)
+      // Handle TCP read failure
       _consecutiveReadFailures++;
-      debugPrint ("未能获取到数据 (失败次数: $_consecutiveReadFailures/$_maxReadFailures)"); // Use logger
-      _updateStatus("数据读取失败 ($_consecutiveReadFailures/$_maxReadFailures)"); // 更新状态显示失败次数
+      debugPrint("未能获取 TCP 数据 (失败次数: $_consecutiveReadFailures/$_maxReadFailures)");
+      _updateStatus("TCP 数据读取失败 ($_consecutiveReadFailures/$_maxReadFailures)");
 
       if (_consecutiveReadFailures >= _maxReadFailures) {
-        debugPrint ("连续读取失败次数达到上限，断开连接..."); // Use logger
-        _updateStatus("连接丢失，正在断开...");
-        await _disconnect(); // 达到阈值，执行断开逻辑
+        debugPrint("TCP 连续读取失败次数达到上限，断开连接...");
+        _updateStatus("TCP 连接丢失，正在断开...");
+        await _disconnectTcp();
       }
     }
   }
 
-   // 加载最新的数据用于图表显示
-  Future<void> loadLatestReadingsForChart({int limit = 30}) async {
+
+  // --- BLE Connection Logic ---
+
+  // Select device for connection attempt - Change parameter to nullable
+  void selectDevice(BluetoothDevice? device) {
+     _selectedDevice = device;
+     if (device != null) {
+        _updateStatus("已选择设备: ${device.platformName}");
+     } else {
+         _updateStatus("已清除选择的设备"); // Update status when cleared
+     }
+     notifyListeners();
+  }
+
+  // Start/Stop BLE Scan
+  Future<void> scanBleDevices() async {
+     if (_isScanningBle || _isConnectingTcp || _isConnectingBle) return;
+     if (!await _checkAndRequestPermissions()) {
+        _updateStatus("权限不足，无法扫描 BLE 设备");
+        return;
+     }
+
+
+     _isScanningBle = true;
+     _scanResults = []; // Clear previous results
+     _updateStatus("正在扫描 BLE 设备...");
+     notifyListeners();
+
+     // Stop scan after a timeout
+     var scanTimeout = Timer(const Duration(seconds: 10), () {
+        stopBleScan();
+        if (_scanResults.isEmpty) {
+           _updateStatus("未找到 BLE 设备");
+        } else {
+           _updateStatus("BLE 扫描完成");
+        }
+     });
+
+     // Clear previous subscription if any
+     await _scanSubscription?.cancel();
+     _scanSubscription = null;
+
+     // Listen to scan results stream
+     _scanSubscription = _bleCommService.scanDevices().listen(
+       (results) {
+          // Filter results (optional: filter by name or service UUID again here if needed)
+          _scanResults = results.where((r) => r.device.platformName.isNotEmpty).toList();
+          _updateStatus("发现 ${_scanResults.length} 个 BLE 设备...");
+          notifyListeners();
+       },
+       onError: (error) {
+          debugPrint("BLE 扫描错误: $error");
+          _updateStatus("BLE 扫描出错");
+          stopBleScan(); // Stop scan on error
+       }
+     );
+  }
+
+  Future<void> stopBleScan() async {
+     if (!_isScanningBle) return;
+     await _bleCommService.stopScan();
+     await _scanSubscription?.cancel();
+     _scanSubscription = null;
+     _isScanningBle = false;
+     // Don't clear _scanResults here, user might still be selecting
+     _updateStatus("BLE 扫描已停止");
+     notifyListeners();
+  }
+
+  Future<bool> _checkAndRequestPermissions() async {
+     // Use permission_handler plugin
+     // Request Bluetooth Scan, Connect, and Location (for older Android)
+     Map<Permission, PermissionStatus> statuses = await [
+        Permission.bluetoothScan,
+        Permission.bluetoothConnect,
+        // Location is only needed for scanning on Android 11 and below.
+        // Permission_handler handles platform differences.
+        Permission.locationWhenInUse,
+     ].request();
+
+     bool granted = statuses[Permission.bluetoothScan] == PermissionStatus.granted &&
+                    statuses[Permission.bluetoothConnect] == PermissionStatus.granted;
+
+     // Check location separately, might be needed for scanning
+     if (!granted && statuses[Permission.locationWhenInUse] != PermissionStatus.granted) {
+        debugPrint("Location permission denied, BLE scanning might fail.");
+        // Decide if location is strictly required for your target devices
+     }
+     if (!granted) {
+         debugPrint("Required Bluetooth permissions were not granted.");
+     }
+
+     // Check if Bluetooth adapter is ON
+     bool isBluetoothOn = await FlutterBluePlus.adapterState.first == BluetoothAdapterState.on;
+     if (!isBluetoothOn) {
+         debugPrint("Bluetooth is turned off.");
+         _updateStatus("请打开蓝牙");
+         // Optionally try to request turning it on (platform dependent)
+         // if (Platform.isAndroid) {
+         //    await FlutterBluePlus.turnOn();
+         // }
+         return false;
+     }
+
+
+     return granted && isBluetoothOn;
+  }
+
+  Future<void> toggleBleConnection() async {
+     if (_isConnectingTcp || _isConnectingBle || _isScanningBle) return;
+
+     // If TCP is active, disconnect it first (policy: only one active connection)
+     if (_isTcpConnected) {
+        await toggleTcpConnection(); // Disconnect TCP
+        await Future.delayed(Duration(milliseconds: 500)); // Give time for cleanup
+     }
+
+
+     if (_isBleConnected) {
+        await _disconnectBle();
+     } else {
+        if (_selectedDevice == null) {
+           _updateStatus("请先扫描并选择一个 BLE 设备");
+           notifyListeners();
+           return;
+        }
+         if (!await _checkAndRequestPermissions()) {
+            _updateStatus("权限不足或蓝牙未开启");
+            return;
+         }
+        await _connectBle(_selectedDevice!);
+     }
+  }
+
+   Future<void> _connectBle(BluetoothDevice device) async {
+      _isConnectingBle = true;
+      _updateStatus("正在连接 BLE 到 ${device.platformName} (${device.remoteId})...");
+      notifyListeners();
+
+      final success = await _bleCommService.connect(device);
+      _isConnectingBle = false;
+
+      if (success) {
+         _isBleConnected = true;
+         _activeConnectionType = ActiveConnectionType.ble; // Set BLE as active
+         _updateStatus("BLE 已连接到 ${device.platformName}");
+         // Reset TCP failure count if switching
+         _consecutiveReadFailures = 0;
+         _stopTcpDataFetching(); // Stop TCP polling if it was running
+         await loadLatestReadingsForChart(limit: chartDataPoints); // Load initial chart
+      } else {
+         _isBleConnected = false;
+         _activeConnectionType = ActiveConnectionType.none;
+         _selectedDevice = null; // Clear selection on failed connect
+         _updateStatus("BLE 连接失败");
+      }
+      notifyListeners();
+   }
+
+   Future<void> _disconnectBle() async {
+      await _bleCommService.disconnect();
+      _isBleConnected = false;
+      if (_activeConnectionType == ActiveConnectionType.ble) {
+         _activeConnectionType = ActiveConnectionType.none;
+          _currentData = null; // Clear data only if it was the active source
+          _chartDataBuffer = [];
+      }
+      _selectedDevice = null; // Clear selection
+      _updateStatus("BLE 已断开连接");
+      notifyListeners();
+   }
+
+   // Listen to data from BLE service
+   void _listenToBleData() {
+      _bleDataSubscription?.cancel(); // Cancel previous listener if any
+      _bleDataSubscription = _bleCommService.sensorDataStream.listen(
+         (sensorData) {
+             // Ensure BLE is still the active connection type before processing
+             if (_activeConnectionType == ActiveConnectionType.ble) {
+                _processReceivedData(sensorData, ActiveConnectionType.ble);
+             }
+         },
+         onError: (error) {
+            debugPrint("Error on BLE data stream: $error");
+            _updateStatus("BLE 数据流错误");
+            // Optionally disconnect on stream error
+            if (_isBleConnected) {
+               _disconnectBle();
+            }
+         },
+         onDone: () {
+            debugPrint("BLE data stream closed.");
+             if (_isBleConnected) {
+                 _updateStatus("BLE 数据流关闭，尝试断开");
+                 _disconnectBle();
+             }
+         }
+      );
+   }
+
+   // --- Common Data Processing ---
+   Future<void> _processReceivedData(SensorData rawData, ActiveConnectionType sourceType) async {
+      // Make sure this source is still the active one
+      if (_activeConnectionType != sourceType) {
+          debugPrint("Ignoring data from inactive source: $sourceType");
+          return;
+      }
+
       try {
-          // 从数据库加载最新的数据填充缓冲区
-          final initialData = await _dbHelper.getLatestReadings(limit: limit);
-          // 数据库返回的是最新的在前，图表需要时间顺序，所以反转
-          _chartDataBuffer = initialData.reversed.toList();
-          notifyListeners(); // 通知图表更新
+         // --- Perform RMS to dB Conversion HERE ---
+         // rawData.noiseDb currently holds RMS value from either source
+         double rmsValue = rawData.noiseDb;
+         double calculatedDb;
+         if (rmsValue > 0) {
+           // log10(x) = log(x) / log(10)
+           calculatedDb = 20 * (log(max(1.0, rmsValue)) / log(10)); // Use max(1,rms) for safety
+         } else {
+           calculatedDb = 0.0; // Or a suitable minimum dB value like -infinity? 0 is safer.
+         }
+         // Ensure dB is not NaN or infinite
+         if (calculatedDb.isNaN || calculatedDb.isInfinite) {
+             calculatedDb = 0.0;
+         }
+
+         // Create the final SensorData object with the CALCULATED dB value
+         final finalData = SensorData(
+             timestamp: rawData.timestamp, // Use original timestamp
+             temperature: rawData.temperature,
+             humidity: rawData.humidity,
+             lightIntensity: rawData.lightIntensity,
+             noiseDb: calculatedDb, // Store the final dB value
+         );
+         // --- End Conversion ---
+
+
+         _currentData = finalData; // Update live data display
+         await _dbHelper.insertReading(finalData); // Save final data (with dB) to DB
+
+         // --- Update Chart Buffer ---
+         _chartDataBuffer.add(finalData); // Add final data (with dB)
+         if (_chartDataBuffer.length > chartDataPoints) {
+           _chartDataBuffer.removeAt(0);
+         }
+         // ----------------------
+
+         notifyListeners(); // Update UI (live data + charts)
+
       } catch (e) {
-          debugPrint ("加载图表数据时出错: $e"); // Use logger
+          debugPrint("处理接收数据时出错 (Source: $sourceType): $e");
+          _updateStatus("数据处理错误 ($sourceType)");
+      }
+   }
+
+
+   // Load latest readings (Keep as is)
+   Future<void> loadLatestReadingsForChart({int limit = 30}) async {
+      try {
+          final initialData = await _dbHelper.getLatestReadings(limit: limit);
+          _chartDataBuffer = initialData.reversed.toList();
+          notifyListeners();
+      } catch (e) {
+          debugPrint("加载图表数据时出错: $e");
           _updateStatus("加载图表数据失败");
       }
   }
 
+  // TCP Network Scan (Keep as is - maybe rename to scanTcpNetwork?)
+  Future<void> scanTcpNetwork() async {
+     // Use the combined 'isConnected' getter which checks both TCP and BLE
+     if (_isConnectingTcp || _isConnectingBle || _isScanningBle || isConnected) return; // <-- Use the getter 'isConnected'
 
-  // 扫描设备
-  Future<void> scanDevices() async {
-    if (_isConnecting || _isScanning || _isConnected) return; // 防止在连接或扫描时再次扫描
+     // [...] Keep the original TCP network scan logic using _tcpCommService.getNetworkPrefix() and _tcpCommService.scanNetworkDevices()
+     // Update status message accordingly ("正在扫描 TCP 网络...", "未找到 TCP 设备" etc.)
 
-    _isScanning = true;
-    _updateStatus("正在扫描设备...");
-    _availableDevices = []; // 清空旧列表
-    notifyListeners();
+     // Example structure:
+     _updateStatus("正在扫描 TCP 网络...");
+     notifyListeners(); // Maybe set an isScanningTcp flag if needed
 
-    final prefix = await _commService.getNetworkPrefix();
-    if (prefix == null || prefix.isEmpty) {
-      _updateStatus("无法获取网络前缀，扫描取消");
-      _isScanning = false;
-      notifyListeners();
-      return;
-    }
+     final prefix = await _tcpCommService.getNetworkPrefix();
+     if (prefix == null || prefix.isEmpty) {
+       _updateStatus("无法获取网络前缀，TCP 扫描取消");
+       notifyListeners();
+       return;
+     }
+     try {
+        // Assuming scanNetworkDevices returns List<String> of IPs
+        List<String> tcpDevices = await _tcpCommService.scanNetworkDevices(prefix, port: int.tryParse(_settings.defaultPort) ?? 8888);
+        if (tcpDevices.isNotEmpty) {
+          // Maybe show these results or auto-select the first one?
+          // For now, just update status.
+          _updateStatus("找到 ${tcpDevices.length} 个潜在 TCP 设备");
+          // Example: Auto-update IP field if only one found?
+          // if (tcpDevices.length == 1) {
+          //    await updateSetting('defaultIpAddress', tcpDevices[0]);
+          // }
+        } else {
+           _updateStatus("未找到 TCP 设备");
+        }
+     } catch (e) {
+        debugPrint("扫描 TCP 设备时出错: $e");
+        _updateStatus("TCP 扫描出错");
+     } finally {
+         notifyListeners();
+     }
 
-    try {
-      // 注意：这里的扫描可能不准确或耗时较长
-      _availableDevices = await _commService.scanNetworkDevices(prefix, port: int.tryParse(_settings.defaultPort) ?? 8266);
-      if (_availableDevices.isNotEmpty) {
-        _updateStatus("找到 ${_availableDevices.length} 个设备");
-      } else {
-        _updateStatus("未找到设备");
-      }
-    } catch (e) {
-       debugPrint ("扫描设备时出错: $e"); // Use logger
-       _updateStatus("扫描出错");
-    } finally {
-        _isScanning = false;
-        notifyListeners(); // 更新扫描按钮状态和设备列表
-    }
   }
 
-  // 清理资源
+
+  // Cleanup resources
   @override
   void dispose() {
-    _stopDataFetching();
-    _commService.disconnect(); // 确保断开连接
+    _stopTcpDataFetching();
+    _tcpCommService.dispose(); // Dispose TCP service
+    _bleDataSubscription?.cancel();
+    _bleCommService.dispose(); // Dispose BLE service
+    _scanSubscription?.cancel();
     super.dispose();
   }
 
-  // --- 数据库管理方法 ---
-  // 添加可选的 limit 参数
+  // --- Database Management Methods (Keep as is) ---
   Future<List<SensorData>> getAllDbReadings({int? limit}) async {
-      return await _dbHelper.getAllReadings(limit: limit); // 将 limit 传递给 DatabaseHelper
+      return await _dbHelper.getAllReadings(limit: limit);
   }
-
   Future<List<SensorData>> searchDbReadings({String? startDate, String? endDate}) async {
       return await _dbHelper.searchReadings(startDate: startDate, endDate: endDate);
   }
-
   Future<void> clearAllDbData() async {
       await _dbHelper.clearAllData();
-      _currentData = null; // 清空界面显示
+      _currentData = null;
       _chartDataBuffer = [];
       notifyListeners();
       _updateStatus("数据库已清空");
   }
-
   Future<void> deleteDbDataBefore(int days) async {
       await _dbHelper.deleteDataBefore(days);
-       _currentData = null; // 可能需要重新加载数据
+       _currentData = null;
        _chartDataBuffer = [];
-       await loadLatestReadingsForChart(limit: chartDataPoints); // 重新加载图表数据到缓冲区
+       await loadLatestReadingsForChart(limit: chartDataPoints);
       notifyListeners();
       _updateStatus("$days 天前的数据已删除");
   }
-
-  // 新增：删除数据库文件的方法
   Future<bool> deleteDatabase() async {
-    // 最好在删除前断开连接，避免正在写入
-    if (_isConnected) {
-       await _disconnect(); // 调用已有的断开连接方法
-       _updateStatus("连接已断开 (准备删除数据库)");
+    // Disconnect BOTH connections before deleting DB
+    bool wasDisconnected = false;
+    if (_isTcpConnected) {
+       await _disconnectTcp();
+       wasDisconnected = true;
+    }
+    if (_isBleConnected) {
+        await _disconnectBle();
+        wasDisconnected = true;
+    }
+    if (wasDisconnected) {
+        _updateStatus("连接已断开 (准备删除数据库)");
+        await Future.delayed(Duration(milliseconds: 200)); // Short delay
     } else {
        _updateStatus("准备删除数据库");
     }
 
-    // 清空内存中的数据
     _currentData = null;
     _chartDataBuffer = [];
-    notifyListeners(); // 更新UI，清除旧数据
+    notifyListeners();
 
-    // 调用 DatabaseHelper 删除文件
     final success = await _dbHelper.deleteDatabaseFile();
 
     if (success) {
@@ -357,9 +619,7 @@ class AppState extends ChangeNotifier {
     } else {
       _updateStatus("删除数据库文件失败或文件不存在。");
     }
-    // 再次通知，更新状态消息
-    notifyListeners(); 
+    notifyListeners();
     return success;
   }
-
 }
