@@ -129,24 +129,6 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             padding: const EdgeInsets.only(right: 8.0),
             child: statusIndicator,
           ),
-          // 只在小屏幕上显示这些按钮，大屏幕会使用NavigationRail
-          if (screenWidth < 840) ...[
-            IconButton(
-              icon: const Icon(Icons.storage_outlined), // Use outlined icons by default
-              tooltip: '数据库管理',
-              onPressed: () {
-                // Navigate using AppState for consistency if large screen nav exists
-                Provider.of<AppState>(context, listen: false).navigateTo(1);
-              },
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings_outlined), // Use outlined icons
-              tooltip: '设置',
-              onPressed: () {
-                 Provider.of<AppState>(context, listen: false).navigateTo(2);
-              },
-            ),
-          ],
           const SizedBox(width: 8),
         ],
       );
