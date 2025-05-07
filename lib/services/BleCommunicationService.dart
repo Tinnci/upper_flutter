@@ -183,7 +183,7 @@ class BleCommunicationService {
     try {
       debugPrint("Discovering services for $deviceId...");
       // Discover services first (required before setNotifiable)
-      await UniversalBle.discoverServices(deviceId);
+      await UniversalBle.discoverServices(deviceId); // 确保这里有 await
       debugPrint("Services discovered for $deviceId. Setting notifications...");
 
       // Define the characteristics to enable notifications for
@@ -195,26 +195,28 @@ class BleCommunicationService {
       ];
 
       bool anySuccess = false;
+      // --- 修改开始: 确保按顺序 await 每个 setNotifiable ---
       for (String charUuid in characteristicsToEnable) {
          try {
-            // Use ENV_SENSE_SERVICE_UUID as the service UUID
-            await UniversalBle.setNotifiable(
+            debugPrint("Attempting to enable notifications for $charUuid on $deviceId...");
+            await UniversalBle.setNotifiable( // <--- 添加 await
                deviceId,
                ENV_SENSE_SERVICE_UUID,
                charUuid,
                BleInputProperty.notification,
             );
-            debugPrint("Notifications enabled for $charUuid on $deviceId");
+            debugPrint("Successfully enabled notifications for $charUuid on $deviceId");
             final lcCharUuid = charUuid.toLowerCase();
             _subscribedCharUuids.add(lcCharUuid); // --- 新增: 添加到已订阅列表 ---
             _lastDataReceivedTime[lcCharUuid] = DateTime.now(); // --- 新增: 初始化最后接收时间 ---
             anySuccess = true;
-            // 之前测试移除的延迟，如果仍然遇到问题，可以考虑重新加入并观察效果
-            // await Future.delayed(Duration(milliseconds: 100)); 
+            // 建议：如果 Android 仍然有问题，可以考虑在每个 await 之后加入一个非常短暂的延迟
+            // await Future.delayed(const Duration(milliseconds: 100)); 
          } catch (e) {
             debugPrint("Error enabling notifications for $charUuid on $deviceId: $e");
          }
       }
+      // --- 修改结束 ---
 
       if (anySuccess) {
          _notificationsEnabled = true; // Set flag only if at least one succeeded
@@ -222,15 +224,11 @@ class BleCommunicationService {
          _startDataStallDetector(); // --- 新增: 启动数据停滞检测器 ---
       } else {
           debugPrint("Warning: Failed to subscribe to any notifications for $deviceId.");
-          // Consider disconnecting if no notifications could be enabled,
-          // as the device would not be usable.
-          // await disconnect(); 
           _cancelDataStallDetector(); // --- 新增: 如果没有任何成功，则取消检测器 ---
       }
 
     } catch (e) {
       debugPrint("Error during service discovery or notification setup for $deviceId: $e");
-      // Disconnect if setup fails critically
       _cancelDataStallDetector(); // --- 新增: 出错时取消检测器 ---
       await disconnect();
     }
