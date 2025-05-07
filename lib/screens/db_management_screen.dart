@@ -93,37 +93,46 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
     }
   }
 
-  Future<void> _selectDateTime(BuildContext context, TextEditingController controller) async {
+  Future<void> _selectDateTime(BuildContext dialogContext, TextEditingController controller) async {
+    // 确保在显示对话框之前 widget 仍然挂载。
+    // 这解决了关于在异步间隙中使用 BuildContext 的 lint 警告。
+    if (!mounted) return;
+
     final DateTime? pickedDate = await showDatePicker(
-      context: context,
+      context: dialogContext, // 使用传入的 context
       initialDate: DateTime.now(),
       firstDate: DateTime(2000),
       lastDate: DateTime(2101),
     );
-    if (pickedDate != null && mounted) {
-      // Use context before async gap
-      final initialTime = TimeOfDay.now();
-      // Check mounted after async gap
-      if (!mounted) return;
-      final TimeOfDay? pickedTime = await showTimePicker(
-        context: context,
-        initialTime: initialTime,
-      );
-      if (pickedTime != null) {
-        final DateTime combined = DateTime(
-          pickedDate.year,
-          pickedDate.month,
-          pickedDate.day,
-          pickedTime.hour,
-          pickedTime.minute,
-        );
-        // Use seconds as 00
-        final finalDateTime = DateTime(combined.year, combined.month, combined.day, combined.hour, combined.minute, 0);
-        if (mounted) { // Check mounted before setting controller text
-            controller.text = _dateFormat.format(finalDateTime);
-        }
-      }
-    }
+
+    // 在 await 之后，并且如果日期已选择，则重新检查 mounted 状态。
+    if (!mounted || pickedDate == null) return;
+
+    // TimeOfDay.now() 在这里不使用 context
+    final initialTime = TimeOfDay.now();
+
+    // 在下一个使用 context 的 await 之前重新检查 mounted 状态。
+    // 前面的 `if (!mounted) return;` 也覆盖了这一点，但显式检查也可以。
+    if (!mounted) return; 
+    final TimeOfDay? pickedTime = await showTimePicker(
+      context: dialogContext, // 再次使用传入的 context
+      initialTime: initialTime,
+    );
+
+    // 在 await 之后，并且如果时间已选择，则重新检查 mounted 状态。
+    if (!mounted || pickedTime == null) return;
+
+    final DateTime combined = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime.hour,
+      pickedTime.minute,
+    );
+    // 使用秒数为 00
+    final finalDateTime = DateTime(combined.year, combined.month, combined.day, combined.hour, combined.minute, 0);
+    // controller.text 的赋值现在是安全的，因为 mounted 状态已被检查。
+    controller.text = _dateFormat.format(finalDateTime);
   }
 
   // TODO: Implement CSV export functionality

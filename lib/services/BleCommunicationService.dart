@@ -1,8 +1,5 @@
 import 'dart:async';
-// Keep for potential platform checks
 import 'package:flutter/foundation.dart';
-// For firstWhereOrNull
-import 'dart:typed_data'; // For ByteData
 import '../models/sensor_data.dart'; // Assuming SensorData structure is suitable
 import 'package:universal_ble/universal_ble.dart'; // Import universal_ble
 
@@ -38,11 +35,11 @@ class BleCommunicationService {
   bool _notificationsEnabled = false;
 
   // --- 新增: 数据停滞检测相关状态 ---
-  Map<String, DateTime> _lastDataReceivedTime = {};
+  final Map<String, DateTime> _lastDataReceivedTime = {};
   Timer? _dataStallTimer;
   final Duration _dataStallTimeout = const Duration(seconds: 25); // 数据停滞超时时间
   final Duration _dataStallCheckInterval = const Duration(seconds: 10); // 数据停滞检测间隔
-  Set<String> _subscribedCharUuids = {}; // 存储已成功订阅通知的特征UUID (小写)
+  final Set<String> _subscribedCharUuids = {}; // 存储已成功订阅通知的特征UUID (小写)
   // --- 结束 新增 ---
 
   // Constructor - Sets up universal_ble callbacks
