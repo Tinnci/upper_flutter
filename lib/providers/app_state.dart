@@ -35,6 +35,7 @@ class AppState extends ChangeNotifier {
   // --- Add getters for new settings ---
   bool get useBlePolling => _settings.useBlePolling;
   int get blePollingIntervalMs => _settings.blePollingIntervalMs;
+  bool get showUnnamedBleDevices => _settings.showUnnamedBleDevices;
   // ---------------------------------
 
   // --- Navigation State (Keep as is) ---
@@ -368,6 +369,14 @@ class AppState extends ChangeNotifier {
      // Listen to the stream from BleCommunicationService
      _scanSubscription = _bleCommService.scanResultStream.listen(
        (device) {
+          // --- 调整过滤逻辑 ---
+          // 如果不显示未命名设备 (showUnnamedBleDevices == false) 并且设备未命名，则跳过
+          if (!showUnnamedBleDevices && (device.name == null || device.name!.isEmpty)) {
+            debugPrint("[AppState] Hiding unnamed BLE device (showUnnamedBleDevices is false): ${device.deviceId}");
+            return; // 跳过添加此设备
+          }
+          // --- 结束过滤逻辑 ---
+
           // Add device if not already in the list (based on deviceId)
           if (!_scanResults.any((d) => d.deviceId == device.deviceId)) {
             _scanResults.add(device);

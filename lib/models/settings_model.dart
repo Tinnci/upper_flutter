@@ -29,6 +29,9 @@ class AppSettings {
   /// BLE轮询间隔（毫秒）
   final int blePollingIntervalMs;
 
+  /// 扫描时是否显示未命名蓝牙设备
+  final bool showUnnamedBleDevices;
+
   /// 构造函数
   AppSettings({
     this.themeMode = ThemeMode.system,
@@ -40,6 +43,7 @@ class AppSettings {
     this.defaultPort = "8888",
     this.useBlePolling = false,
     this.blePollingIntervalMs = 500,
+    this.showUnnamedBleDevices = false,
   });
 
   /// 从JSON创建设置对象
@@ -54,6 +58,7 @@ class AppSettings {
       defaultPort: json['defaultPort'] ?? "8888",
       useBlePolling: json['useBlePolling'] as bool? ?? false,
       blePollingIntervalMs: json['blePollingIntervalMs'] as int? ?? 500,
+      showUnnamedBleDevices: json['showUnnamedBleDevices'] as bool? ?? false,
     );
   }
 
@@ -69,6 +74,7 @@ class AppSettings {
       'defaultPort': defaultPort,
       'useBlePolling': useBlePolling,
       'blePollingIntervalMs': blePollingIntervalMs,
+      'showUnnamedBleDevices': showUnnamedBleDevices,
     };
   }
 
@@ -83,6 +89,7 @@ class AppSettings {
     String? defaultPort,
     bool? useBlePolling,
     int? blePollingIntervalMs,
+    bool? showUnnamedBleDevices,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -94,6 +101,7 @@ class AppSettings {
       defaultPort: defaultPort ?? this.defaultPort,
       useBlePolling: useBlePolling ?? this.useBlePolling,
       blePollingIntervalMs: blePollingIntervalMs ?? this.blePollingIntervalMs,
+      showUnnamedBleDevices: showUnnamedBleDevices ?? this.showUnnamedBleDevices,
     );
   }
 }

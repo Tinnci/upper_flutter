@@ -332,6 +332,15 @@ class SettingsScreen extends StatelessWidget {
                         );
                       },
                     ),
+                    _buildAdaptiveSwitch(
+                      context: context,
+                      title: '显示未命名蓝牙设备',
+                      subtitle: '扫描时显示没有名称的蓝牙设备',
+                      value: settings.showUnnamedBleDevices,
+                      onChanged: (newValue) {
+                        appState.updateSetting('showUnnamedBleDevices', newValue);
+                      },
+                    ),
                     _buildDivider(),
 
                     // 数据设置
