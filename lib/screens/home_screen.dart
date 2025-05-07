@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:provider/provider.dart';
 import 'dart:io' show Platform;
-import 'package:universal_ble/universal_ble.dart';
 import '../providers/app_state.dart';
 import 'db_management_screen.dart';
 import 'settings_screen.dart';

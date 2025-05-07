@@ -61,6 +61,9 @@ class BleCommunicationService {
     };
 
     UniversalBle.onValueChange = (deviceId, characteristicId, value) {
+      // --- DEBUG 信息 ---
+      debugPrint('[BLE DATA RECEIVED] Device: $deviceId, Char: $characteristicId, Value: $value');
+      // --- 结束 DEBUG ---
       if (_connectedDeviceId == deviceId && _notificationsEnabled) {
          // Ensure characteristicId is lowercase for comparison if needed
          _parseAndProcessData(characteristicId.toLowerCase(), value);
@@ -107,11 +110,8 @@ class BleCommunicationService {
         debugPrint("Attempting to connect to $deviceId with universal_ble...");
         await UniversalBle.connect(deviceId);
         // Connection result handled by onConnectionChange callback
-        // Consider adding a separate timeout mechanism in AppState if needed
-        // await Future.delayed(Duration(seconds: 16)); // Remove crude timeout check
-        // Rely on onConnectionChange to set _connectedDeviceId
         // Let's return true optimistically, state will update via stream
-        return true; // Return true for now, failure handled by stream
+        return true; 
      } catch (e) {
         _isConnecting = false;
         debugPrint("universal_ble connect error: $e");
@@ -178,11 +178,12 @@ class BleCommunicationService {
                deviceId,
                ENV_SENSE_SERVICE_UUID,
                charUuid,
-               BleInputProperty.notification, // Or .indication based on device
+               BleInputProperty.notification,
             );
             debugPrint("Notifications enabled for $charUuid on $deviceId");
             anySuccess = true;
-            await Future.delayed(Duration(milliseconds: 100)); // Small delay
+            // 之前测试移除的延迟，如果仍然遇到问题，可以考虑重新加入并观察效果
+            // await Future.delayed(Duration(milliseconds: 100)); 
          } catch (e) {
             debugPrint("Error enabling notifications for $charUuid on $deviceId: $e");
          }
@@ -193,8 +194,9 @@ class BleCommunicationService {
          debugPrint("Notification setup process complete for $deviceId.");
       } else {
           debugPrint("Warning: Failed to subscribe to any notifications for $deviceId.");
-          // Consider disconnecting if no notifications could be enabled
-          // await disconnect();
+          // Consider disconnecting if no notifications could be enabled,
+          // as the device would not be usable.
+          // await disconnect(); 
       }
 
     } catch (e) {
@@ -206,7 +208,13 @@ class BleCommunicationService {
 
   // Parse incoming data (Characteristic UUID should be lowercase from onValueChange)
   void _parseAndProcessData(String characteristicUuid, Uint8List data) {
-     if (data.isEmpty) return;
+     // --- DEBUG 信息 ---
+     debugPrint('[BLE PARSE ATTEMPT] Char: $characteristicUuid, Data: $data');
+     // --- 结束 DEBUG ---
+     if (data.isEmpty) {
+        debugPrint('[BLE PARSE SKIP] Data is empty for Char: $characteristicUuid');
+        return;
+     }
      ByteData byteData = ByteData.sublistView(data);
      DateTime now = DateTime.now();
      bool updated = false;
@@ -220,37 +228,56 @@ class BleCommunicationService {
      try {
          if (characteristicUuid == tempUuidLower && data.length >= 2) {
            _lastTemp = byteData.getInt16(0, Endian.little) / 100.0;
+           debugPrint('[BLE PARSED] Temp: $_lastTemp');
            updated = true;
          } else if (characteristicUuid == humidUuidLower && data.length >= 2) {
            _lastHumid = byteData.getUint16(0, Endian.little) / 100.0;
+            debugPrint('[BLE PARSED] Humid: $_lastHumid');
            updated = true;
          } else if (characteristicUuid == luxUuidLower && data.length >= 3) {
+           // Standard BLE Illuminance characteristic is uint24
            int rawLux = data[0] | (data[1] << 8) | (data[2] << 16);
            _lastLux = rawLux / 100.0;
+            debugPrint('[BLE PARSED] Lux: $_lastLux');
            updated = true;
          } else if (characteristicUuid == noiseUuidLower && data.length >= 2) {
+           // Custom Noise characteristic, expecting sint16 (RMS) scaled by 10
            _lastNoiseRms = byteData.getInt16(0, Endian.little) / 10.0;
+            debugPrint('[BLE PARSED] Noise RMS: $_lastNoiseRms');
            updated = true;
+         } else {
+            debugPrint('[BLE PARSE UNKNOWN] Unknown Char: $characteristicUuid or data length mismatch. Data: $data');
          }
      } catch (e) {
-          debugPrint("Error parsing data for $characteristicUuid: $e. Data: $data");
-          return;
+          debugPrint("[BLE PARSE ERROR] Error parsing data for $characteristicUuid: $e. Data: $data");
+          return; // Exit if parsing fails for this characteristic's data
      }
 
      if (updated) {
         _lastTimestamp = now;
+        // Check if all necessary data points have been received
         if (_lastTemp != null && _lastHumid != null && _lastLux != null && _lastNoiseRms != null) {
+           // noiseDb field in SensorData will store the raw RMS from BLE,
+           // AppState will handle dB conversion.
            double noiseValueToSend = _lastNoiseRms!;
+           
            final sensorData = SensorData(
-               timestamp: _lastTimestamp!,
+               timestamp: _lastTimestamp!, // Use the timestamp from when the last piece of data arrived
                temperature: _lastTemp!,
                humidity: _lastHumid!,
                lightIntensity: _lastLux!,
-               noiseDb: noiseValueToSend,
+               noiseDb: noiseValueToSend, // Sending RMS value
            );
            if (!_sensorDataController.isClosed) {
              _sensorDataController.add(sensorData);
+             debugPrint('[BLE DATA SENT TO APPSTATE] SensorData: $sensorData');
+             // Optionally, clear the last values here if you want to ensure
+             // that each SensorData object is composed of entirely new readings.
+             // However, this might lead to missed SensorData objects if characteristics update at slightly different times.
+             // _cleanupLastValues(); // Consider implications
            }
+        } else {
+            debugPrint('[BLE DATA PARTIAL] Waiting for more data. Temp: $_lastTemp, Humid: $_lastHumid, Lux: $_lastLux, NoiseRMS: $_lastNoiseRms');
         }
      }
   }
