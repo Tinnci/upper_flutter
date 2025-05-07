@@ -105,11 +105,11 @@ flutter:
 flutter_icons:
   android: true
   ios: true
-  image_path: "assets/images/icon.png" # <--- 确保路径指向你的图标
+  image_path: "assets/images/icon.png" # 这个仍然是主图标，用于iOS, Windows, macOS等
   # image_path_android: "assets/images/icon_android.png" # (可选) 如果安卓有单独图标
   # image_path_ios: "assets/images/icon_ios.png"       # (可选) 如果iOS有单独图标
-  # adaptive_icon_background: "#ffffff"  # (可选) 安卓自适应图标背景色
-  # adaptive_icon_foreground: "assets/images/icon_foreground.png" # (可选) 安卓自适应图标前景
+  adaptive_icon_background: "#FFFFFF"  # (可选) 安卓自适应图标背景色，你可以根据需要修改或移除
+  adaptive_icon_foreground: "assets/images/foreground.png" # <--- 设置安卓自适应图标前景
   windows:
     generate: true
     image_path: "assets/images/icon.png"
