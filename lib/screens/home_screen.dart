@@ -99,8 +99,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       children: [
         buildStatusChip("TCP", appState.isTcpConnected, appState.isConnectingTcp),
         const SizedBox(width: 6),
-        // Only show BLE status on mobile platforms
-        if (Platform.isAndroid || Platform.isIOS) ...[
+        // Only show BLE status on mobile platforms and Windows
+        if (Platform.isAndroid || Platform.isIOS || Platform.isWindows) ...[
             buildStatusChip("BLE", appState.isBleConnected, appState.isConnectingBle),
         ],
         const SizedBox(width: 8), // Add some padding at the end
@@ -458,8 +458,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     ];
 
     List<Widget> bleControls = [];
-    // Only show BLE controls on mobile platforms
-    if (Platform.isAndroid || Platform.isIOS) {
+    // Show BLE controls on mobile platforms and Windows
+    if (Platform.isAndroid || Platform.isIOS || Platform.isWindows) {
         bleControls = [
             _buildAdaptiveButton(
               label: '扫描BLE',
@@ -514,8 +514,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             // Combine controls. Show TCP first, then BLE if available.
             children: [
                 ...tcpControls,
-                 // Add a visual separator on mobile if both are shown
-                 if (Platform.isAndroid || Platform.isIOS)
+                 // Add a visual separator on mobile or Windows if both are shown
+                 if (Platform.isAndroid || Platform.isIOS || Platform.isWindows)
                     VerticalDivider(width: 20, thickness: 1),
                 ...bleControls,
             ],
