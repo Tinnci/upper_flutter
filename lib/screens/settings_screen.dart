@@ -381,6 +381,30 @@ class SettingsScreen extends StatelessWidget {
                     ),
                     // --- 结束危险区域 ---
 
+                    // --- Add BLE Polling Settings ---
+                    _buildAdaptiveSwitch(
+                      context: context,
+                      title: '使用 BLE 轮询模式',
+                      subtitle: '开启后将主动读取数据而非依赖通知 (可能更耗电)',
+                      value: settings.useBlePolling,
+                      onChanged: (newValue) {
+                        appState.updateSetting('useBlePolling', newValue);
+                      },
+                    ),
+                    // Conditionally show interval setting only if polling is enabled
+                    if (settings.useBlePolling)
+                      _buildNumberSelector(
+                        title: 'BLE 轮询间隔 (毫秒)',
+                        subtitle: '主动读取数据的频率 (越低越快，但越耗电)',
+                        value: settings.blePollingIntervalMs,
+                        // Example options, adjust as needed
+                        options: [200, 300, 500, 750, 1000, 1500, 2000], 
+                        onChanged: (newValue) {
+                           appState.updateSetting('blePollingIntervalMs', newValue);
+                        },
+                      ),
+                    // --- End BLE Polling Settings ---
+
                     const SizedBox(height: 24),
                   ],
                 ),

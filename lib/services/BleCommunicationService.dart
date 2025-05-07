@@ -59,13 +59,13 @@ class BleCommunicationService {
           _connectedDeviceId = deviceId;
           _connectionStateController.add(true);
            // Discover services immediately after connection
-          _setupNotifications(deviceId);
+          setupNotifications(deviceId); // Use public method name
        } else {
           _connectedDeviceId = null;
           _notificationsEnabled = false; // Reset flag
           _connectionStateController.add(false);
           _cleanupLastValues(); // Clear last values on disconnect
-          _cancelDataStallDetector(); // --- 新增: 断开连接时取消检测器 ---
+          cancelDataStallDetector(); // Use public method name
           _subscribedCharUuids.clear(); // --- 新增: 清理状态 ---
           _lastDataReceivedTime.clear(); // --- 新增: 清理状态 ---
        }
@@ -77,6 +77,7 @@ class BleCommunicationService {
       debugPrint('[BLE RAW VALUE CHANGE TRIGGERED] Current State: ConnectedDeviceID: $_connectedDeviceId, NotificationsEnabled: $_notificationsEnabled');
       // --- 结束更详细的 DEBUG ---
 
+      // Use _notificationsEnabled flag set by the now public setupNotifications
       if (_connectedDeviceId == deviceId && _notificationsEnabled) {
          final lcCharId = characteristicId.toLowerCase();
          _lastDataReceivedTime[lcCharId] = DateTime.now(); // --- 新增: 更新最后接收数据时间 ---
@@ -88,7 +89,6 @@ class BleCommunicationService {
 
      UniversalBle.onAvailabilityChange = (state) {
        debugPrint("Bluetooth Availability changed: $state");
-       // Optionally notify AppState or handle state changes (e.g., disable buttons if off)
      };
   }
 
@@ -99,14 +99,8 @@ class BleCommunicationService {
 
   // Scan for devices
   Future<void> scanDevices({Duration timeout = const Duration(seconds: 10)}) async {
-     // universal_ble handles stopping previous scans internally
-     await UniversalBle.startScan(
-       // Optional: Add filters if needed later.
-       // For now, scan for everything. Remember web requires specifying services.
-       // scanFilter: ScanFilter(withServices: [ENV_SENSE_SERVICE_UUID])
-     );
+     await UniversalBle.startScan();
      debugPrint("BLE Scan started with universal_ble");
-     // Timeout is handled by AppState now, calling stopScan after duration
   }
 
   Future<void> stopScan() async {
@@ -122,8 +116,6 @@ class BleCommunicationService {
      }
      try {
         _isConnecting = true;
-        // 在 onConnectionChange 中发出 false 状态，这里不再重复
-        // _connectionStateController.add(false); 
         debugPrint("Attempting to connect to $deviceId with universal_ble...");
         await UniversalBle.connect(deviceId);
         return true; 
@@ -139,27 +131,24 @@ class BleCommunicationService {
   Future<void> disconnect() async {
     if (_connectedDeviceId != null) {
        final deviceToDisconnect = _connectedDeviceId!;
-       _connectedDeviceId = null; // Clear immediately
+       _connectedDeviceId = null; 
        _notificationsEnabled = false;
-       _isConnecting = false; // Ensure connecting flag is false
-       _cancelDataStallDetector(); // --- 新增: 断开连接时取消检测器 ---
-       _subscribedCharUuids.clear(); // --- 新增: 清理状态 ---
-       _lastDataReceivedTime.clear(); // --- 新增: 清理状态 ---
+       _isConnecting = false; 
+       cancelDataStallDetector(); // Use public method name
+       _subscribedCharUuids.clear(); 
+       _lastDataReceivedTime.clear(); 
        try {
            debugPrint("Disconnecting from $deviceToDisconnect with universal_ble...");
            await UniversalBle.disconnect(deviceToDisconnect);
-           // State change handled by onConnectionChange callback
        } catch (e) {
            debugPrint("universal_ble disconnect error: $e");
-           // Ensure state is updated even if disconnect throws
            _connectionStateController.add(false);
            _cleanupLastValues();
        }
     } else {
-       // Already disconnected or never connected
        _connectionStateController.add(false);
        _cleanupLastValues();
-       _cancelDataStallDetector(); // 即使没有连接，也确保取消
+       cancelDataStallDetector(); // Use public method name
        _subscribedCharUuids.clear();
        _lastDataReceivedTime.clear();
     }
@@ -174,15 +163,15 @@ class BleCommunicationService {
      _lastTimestamp = null;
   }
 
-  // Setup notifications using universal_ble
-  Future<void> _setupNotifications(String deviceId) async {
-    _notificationsEnabled = false; // Reset flag before attempting setup
-    _subscribedCharUuids.clear(); // --- 新增: 每次设置前清空 ---
-    _lastDataReceivedTime.clear(); // --- 新增: 每次设置前清空 ---
+  // --- Make setupNotifications public ---
+  Future<void> setupNotifications(String deviceId) async { // Renamed from _setupNotifications
+    _notificationsEnabled = false; 
+    _subscribedCharUuids.clear(); 
+    _lastDataReceivedTime.clear(); 
 
     try {
       debugPrint("Discovering services for $deviceId...");
-      await UniversalBle.discoverServices(deviceId); // 确保这里有 await
+      await UniversalBle.discoverServices(deviceId); 
       debugPrint("Services discovered for $deviceId. Setting notifications...");
 
       final characteristicsToEnable = [
@@ -193,7 +182,7 @@ class BleCommunicationService {
       ];
 
       bool anySuccess = false;
-      List<String> successfullySubscribed = []; // 记录成功订阅的UUID (小写)
+      List<String> successfullySubscribed = []; // Keep track for initial read
 
       for (String charUuid in characteristicsToEnable) {
          try {
@@ -207,10 +196,10 @@ class BleCommunicationService {
             debugPrint("Successfully enabled notifications for $charUuid on $deviceId");
             final lcCharUuid = charUuid.toLowerCase();
             _subscribedCharUuids.add(lcCharUuid);
-            _lastDataReceivedTime[lcCharUuid] = DateTime.now(); // 初始化时间戳
-            successfullySubscribed.add(lcCharUuid); // 添加到成功列表
+            _lastDataReceivedTime[lcCharUuid] = DateTime.now(); 
+            successfullySubscribed.add(lcCharUuid); // Add to success list
             anySuccess = true;
-            // await Future.delayed(const Duration(milliseconds: 100)); // 可选延迟
+            // await Future.delayed(const Duration(milliseconds: 100)); 
          } catch (e) {
             debugPrint("Error enabling notifications for $charUuid on $deviceId: $e");
          }
@@ -220,41 +209,39 @@ class BleCommunicationService {
          _notificationsEnabled = true;
          debugPrint("Notification setup process complete for $deviceId.");
 
-         // --- 新增: 初始手动读取 ---
+         // Perform initial manual read (as implemented before)
          debugPrint("Performing initial manual read for subscribed characteristics...");
          for (String lcCharUuid in successfullySubscribed) {
-             // 调用手动读取，但不在这里 await，让它们并发启动
-             // _manualReadCharacteristic 内部会处理 await 和错误
-             _manualReadCharacteristic(lcCharUuid);
+             manualReadCharacteristic(lcCharUuid); 
          }
-         // --- 结束 新增 ---
-
-         _startDataStallDetector(); // 在发起初始读取后启动停滞检测器
+         
+         startDataStallDetector(); // Use public method name
       } else {
           debugPrint("Warning: Failed to subscribe to any notifications for $deviceId.");
-          _cancelDataStallDetector();
+          cancelDataStallDetector(); // Use public method name
       }
 
     } catch (e) {
       debugPrint("Error during service discovery or notification setup for $deviceId: $e");
-      _cancelDataStallDetector();
-      await disconnect();
+      cancelDataStallDetector(); // Use public method name
+      await disconnect(); 
     }
   }
 
-  // --- 新增: 数据停滞检测相关方法 ---
-  void _startDataStallDetector() {
-    _dataStallTimer?.cancel(); // 先取消已有的，避免重复
+  // --- Make data stall detector methods public ---
+  void startDataStallDetector() { // Renamed from _startDataStallDetector
+    _dataStallTimer?.cancel(); 
     _dataStallTimer = Timer.periodic(_dataStallCheckInterval, (_) => _checkDataStall());
     debugPrint("[BLE Stall Detector] Started. Checking every ${_dataStallCheckInterval.inSeconds}s for data older than ${_dataStallTimeout.inSeconds}s.");
   }
 
-  void _cancelDataStallDetector() {
+  void cancelDataStallDetector() { // Renamed from _cancelDataStallDetector
     _dataStallTimer?.cancel();
     _dataStallTimer = null;
     debugPrint("[BLE Stall Detector] Stopped.");
   }
 
+  // _checkDataStall remains private as it's internal timer logic
   void _checkDataStall() {
     if (_connectedDeviceId == null || !_notificationsEnabled || _subscribedCharUuids.isEmpty) {
       return;
@@ -262,24 +249,20 @@ class BleCommunicationService {
     final now = DateTime.now();
     debugPrint("[BLE Stall Detector] Checking for stalled characteristics. Subscribed: ${_subscribedCharUuids.length}");
 
-    // 使用 toList() 创建副本，避免在迭代时修改 Set 导致的问题 (虽然当前逻辑可能没问题，但更安全)
     for (String lcCharUuid in _subscribedCharUuids.toList()) { 
       final lastTime = _lastDataReceivedTime[lcCharUuid];
       
-      // 如果 lastTime 为 null (理论上不应该) 或数据已超时
       if (lastTime == null || now.difference(lastTime) > _dataStallTimeout) {
         debugPrint("[BLE Stall Detector] Data stall detected for $lcCharUuid (last update: $lastTime). Manually reading...");
-        // --- 修改: 移除检测到停滞时的立即时间戳更新 ---
-        _manualReadCharacteristic(lcCharUuid); 
-        // _lastDataReceivedTime[lcCharUuid] = now; // <-- 移除或注释掉这一行
+        manualReadCharacteristic(lcCharUuid); 
       }
     }
   }
 
-  Future<void> _manualReadCharacteristic(String characteristicUuid) async {
-    // 确保传入的 characteristicUuid 已经是小写
+  // --- manualReadCharacteristic is already public-ish ---
+  Future<void> manualReadCharacteristic(String characteristicUuid) async {
     if (_connectedDeviceId == null) return;
-    final lcCharUuid = characteristicUuid.toLowerCase(); // 再次确保是小写
+    final lcCharUuid = characteristicUuid.toLowerCase(); 
 
     try {
       debugPrint("[BLE Manual Read] Attempting manual read for $lcCharUuid on $_connectedDeviceId");
@@ -287,27 +270,23 @@ class BleCommunicationService {
       final Uint8List readData = await UniversalBle.readValue(
           _connectedDeviceId!,
           ENV_SENSE_SERVICE_UUID, 
-          lcCharUuid, // 使用小写UUID
+          lcCharUuid, 
       );
 
       debugPrint("[BLE Manual Read SUCCEEDED] Char: $lcCharUuid, Value: $readData (length: ${readData.length})");
       
-      // --- 修改: 仅在成功时更新时间戳 ---
+      // Update timestamp only on successful read
       _lastDataReceivedTime[lcCharUuid] = DateTime.now(); 
       _parseAndProcessData(lcCharUuid, readData);
 
     } catch (e) {
       debugPrint("[BLE Manual Read FAILED] Error during manual read for $lcCharUuid: $e");
-      // 读取失败时不更新 _lastDataReceivedTime，允许下次停滞检测再次触发
     }
   }
-  // --- 结束 新增 ---
 
   // Parse incoming data (Characteristic UUID should be lowercase from onValueChange)
   void _parseAndProcessData(String characteristicUuid, Uint8List data) {
-     // --- DEBUG 信息 ---
      debugPrint('[BLE PARSE ATTEMPT] Char: $characteristicUuid, Data: $data');
-     // --- 结束 DEBUG ---
      if (data.isEmpty) {
         debugPrint('[BLE PARSE SKIP] Data is empty for Char: $characteristicUuid');
         return;
@@ -316,7 +295,6 @@ class BleCommunicationService {
      DateTime now = DateTime.now();
      bool updated = false;
 
-     // Use lowercase UUIDs for comparison
      final tempUuidLower = TEMP_CHAR_UUID.toLowerCase();
      final humidUuidLower = HUMID_CHAR_UUID.toLowerCase();
      final luxUuidLower = LUX_CHAR_UUID.toLowerCase();
@@ -332,13 +310,11 @@ class BleCommunicationService {
             debugPrint('[BLE PARSED] Humid: $_lastHumid');
            updated = true;
          } else if (characteristicUuid == luxUuidLower && data.length >= 3) {
-           // Standard BLE Illuminance characteristic is uint24
            int rawLux = data[0] | (data[1] << 8) | (data[2] << 16);
            _lastLux = rawLux / 100.0;
             debugPrint('[BLE PARSED] Lux: $_lastLux');
            updated = true;
          } else if (characteristicUuid == noiseUuidLower && data.length >= 2) {
-           // Custom Noise characteristic, expecting sint16 (RMS) scaled by 10
            _lastNoiseRms = byteData.getInt16(0, Endian.little) / 10.0;
             debugPrint('[BLE PARSED] Noise RMS: $_lastNoiseRms');
            updated = true;
@@ -347,31 +323,24 @@ class BleCommunicationService {
          }
      } catch (e) {
           debugPrint("[BLE PARSE ERROR] Error parsing data for $characteristicUuid: $e. Data: $data");
-          return; // Exit if parsing fails for this characteristic's data
+          return; 
      }
 
      if (updated) {
         _lastTimestamp = now;
-        // Check if all necessary data points have been received
         if (_lastTemp != null && _lastHumid != null && _lastLux != null && _lastNoiseRms != null) {
-           // noiseDb field in SensorData will store the raw RMS from BLE,
-           // AppState will handle dB conversion.
            double noiseValueToSend = _lastNoiseRms!;
            
            final sensorData = SensorData(
-               timestamp: _lastTimestamp!, // Use the timestamp from when the last piece of data arrived
+               timestamp: _lastTimestamp!, 
                temperature: _lastTemp!,
                humidity: _lastHumid!,
                lightIntensity: _lastLux!,
-               noiseDb: noiseValueToSend, // Sending RMS value
+               noiseDb: noiseValueToSend, 
            );
            if (!_sensorDataController.isClosed) {
              _sensorDataController.add(sensorData);
              debugPrint('[BLE DATA SENT TO APPSTATE] SensorData: $sensorData');
-             // Optionally, clear the last values here if you want to ensure
-             // that each SensorData object is composed of entirely new readings.
-             // However, this might lead to missed SensorData objects if characteristics update at slightly different times.
-             // _cleanupLastValues(); // Consider implications
            }
         } else {
             debugPrint('[BLE DATA PARTIAL] Waiting for more data. Temp: $_lastTemp, Humid: $_lastHumid, Lux: $_lastLux, NoiseRMS: $_lastNoiseRms');
@@ -381,16 +350,13 @@ class BleCommunicationService {
 
   // Dispose method
   void dispose() {
-     // It's good practice to remove listeners if the package provided a way,
-     // but universal_ble uses static callbacks. We mostly need to close streams.
      _scanResultController.close();
      _connectionStateController.close();
      _sensorDataController.close();
-     // Attempt disconnect if connected
+     cancelDataStallDetector(); // Use public method name
      if (_connectedDeviceId != null) {
         UniversalBle.disconnect(_connectedDeviceId!);
      }
-     _cancelDataStallDetector(); // --- 新增: dispose时取消检测器 ---
      debugPrint("BleCommunicationService (universal_ble) disposed.");
   }
 }

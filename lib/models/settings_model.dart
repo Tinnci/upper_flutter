@@ -23,6 +23,12 @@ class AppSettings {
   /// 默认端口
   final String defaultPort;
 
+  /// 是否使用BLE轮询
+  final bool useBlePolling;
+  
+  /// BLE轮询间隔（毫秒）
+  final int blePollingIntervalMs;
+
   /// 构造函数
   AppSettings({
     this.themeMode = ThemeMode.system,
@@ -32,6 +38,8 @@ class AppSettings {
     this.chartDataPoints = 60,
     this.defaultIpAddress = "192.168.1.100",
     this.defaultPort = "8888",
+    this.useBlePolling = false,
+    this.blePollingIntervalMs = 500,
   });
 
   /// 从JSON创建设置对象
@@ -44,6 +52,8 @@ class AppSettings {
       chartDataPoints: json['chartDataPoints'] ?? 60,
       defaultIpAddress: json['defaultIpAddress'] ?? "192.168.1.100",
       defaultPort: json['defaultPort'] ?? "8888",
+      useBlePolling: json['useBlePolling'] as bool? ?? false,
+      blePollingIntervalMs: json['blePollingIntervalMs'] as int? ?? 500,
     );
   }
 
@@ -57,6 +67,8 @@ class AppSettings {
       'chartDataPoints': chartDataPoints,
       'defaultIpAddress': defaultIpAddress,
       'defaultPort': defaultPort,
+      'useBlePolling': useBlePolling,
+      'blePollingIntervalMs': blePollingIntervalMs,
     };
   }
 
@@ -69,6 +81,8 @@ class AppSettings {
     int? chartDataPoints,
     String? defaultIpAddress,
     String? defaultPort,
+    bool? useBlePolling,
+    int? blePollingIntervalMs,
   }) {
     return AppSettings(
       themeMode: themeMode ?? this.themeMode,
@@ -78,6 +92,8 @@ class AppSettings {
       chartDataPoints: chartDataPoints ?? this.chartDataPoints,
       defaultIpAddress: defaultIpAddress ?? this.defaultIpAddress,
       defaultPort: defaultPort ?? this.defaultPort,
+      useBlePolling: useBlePolling ?? this.useBlePolling,
+      blePollingIntervalMs: blePollingIntervalMs ?? this.blePollingIntervalMs,
     );
   }
 }

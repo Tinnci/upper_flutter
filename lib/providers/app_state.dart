@@ -9,7 +9,8 @@ import '../models/sensor_data.dart';
 import '../models/settings_model.dart';
 // Rename original CommunicationService for clarity
 import '../services/communication_service.dart' as tcp_service;
-import '../services/BleCommunicationService.dart'; // Keep BLE service import
+// Import the service AND the constants
+import '../services/BleCommunicationService.dart'; 
 import '../services/database_helper.dart';
 import '../services/settings_service.dart';
 
@@ -31,6 +32,10 @@ class AppState extends ChangeNotifier {
   bool get useDynamicColor => _settings.useDynamicColor;
   int get dataRefreshInterval => _settings.dataRefreshInterval;
   int get chartDataPoints => _settings.chartDataPoints;
+  // --- Add getters for new settings ---
+  bool get useBlePolling => _settings.useBlePolling;
+  int get blePollingIntervalMs => _settings.blePollingIntervalMs;
+  // ---------------------------------
 
   // --- Navigation State (Keep as is) ---
   int _currentNavigationIndex = 0;
@@ -95,12 +100,18 @@ class AppState extends ChangeNotifier {
   int _consecutiveReadFailures = 0;
   final int _maxReadFailures = 3;
 
+  // --- Add BLE Polling Timer ---
+  Timer? _blePollingTimer;
+  // --------------------------
+
   // Constructor
   AppState() {
     _bleCommService = BleCommunicationService(); // Initialize BLE service
     _initSettings().then((_) {
        // Listen to BLE streams AFTER settings are loaded
        _listenToBleStreams();
+       // Initial load from DB after settings are ready
+       loadLatestReadingsForChart(limit: chartDataPoints); 
     });
   }
 
@@ -112,18 +123,79 @@ class AppState extends ChangeNotifier {
 
   // Update/Reset Settings (Keep as is)
   Future<void> updateSettings(AppSettings newSettings) async {
+    final oldSettings = _settings;
     _settings = newSettings;
     await _settingsService.saveSettings(newSettings);
+    if (_isBleConnected && _activeConnectionType == ActiveConnectionType.ble) {
+       if (oldSettings.useBlePolling != newSettings.useBlePolling || 
+           (newSettings.useBlePolling && oldSettings.blePollingIntervalMs != newSettings.blePollingIntervalMs)) {
+           debugPrint("BLE settings changed while connected, restarting BLE logic.");
+            if (newSettings.useBlePolling) {
+               _stopBlePolling();
+               _bleCommService.cancelDataStallDetector();
+               _startBlePolling();
+            } else {
+               _stopBlePolling(); 
+               if (_selectedDeviceId != null) {
+                  _bleCommService.setupNotifications(_selectedDeviceId!);
+               }
+            }
+       }
+    }
     notifyListeners();
   }
   Future<void> updateSetting<T>(String key, T value) async {
+    final oldSettings = _settings;
     await _settingsService.updateSetting(key, value);
-    _settings = await _settingsService.loadSettings();
+    _settings = await _settingsService.loadSettings(); 
+    final newSettings = _settings;
+
+    if (_isBleConnected && _activeConnectionType == ActiveConnectionType.ble) {
+        bool pollingConfigChanged = false;
+        if (key == 'useBlePolling' && oldSettings.useBlePolling != newSettings.useBlePolling) {
+            pollingConfigChanged = true;
+        } else if (key == 'blePollingIntervalMs' && newSettings.useBlePolling && oldSettings.blePollingIntervalMs != newSettings.blePollingIntervalMs) {
+            pollingConfigChanged = true;
+        }
+
+        if (pollingConfigChanged) {
+            debugPrint("BLE settings changed via updateSetting, restarting BLE logic.");
+            if (newSettings.useBlePolling) {
+                _stopBlePolling(); 
+                _bleCommService.cancelDataStallDetector();
+                _startBlePolling(); 
+            } else {
+                _stopBlePolling(); 
+                if (_selectedDeviceId != null) {
+                   _bleCommService.setupNotifications(_selectedDeviceId!);
+                }
+            }
+        }
+    }
     notifyListeners();
   }
   Future<void> resetSettings() async {
+    final wasPolling = _settings.useBlePolling;
     await _settingsService.resetSettings();
-    _settings = await _settingsService.loadSettings();
+    _settings = await _settingsService.loadSettings(); 
+    
+    if (_isBleConnected && _activeConnectionType == ActiveConnectionType.ble) {
+        if (wasPolling && !_settings.useBlePolling) {
+            debugPrint("Settings reset disabled polling, stopping polling timer.");
+            _stopBlePolling();
+             if (_selectedDeviceId != null) {
+               _bleCommService.setupNotifications(_selectedDeviceId!);
+             }
+        } else if (!wasPolling && _settings.useBlePolling) {
+             debugPrint("Settings reset enabled polling, starting polling timer.");
+             _bleCommService.cancelDataStallDetector();
+             _startBlePolling();
+        }
+         else if (_settings.useBlePolling) { 
+             _stopBlePolling();
+             _startBlePolling(); 
+         }
+    }
     notifyListeners();
   }
 
@@ -444,72 +516,89 @@ class AppState extends ChangeNotifier {
    }
 
    Future<void> _disconnectBle() async {
-      // Stop setting _isBleConnected here, let the stream listener handle it
+      _stopBlePolling(); // --- Stop polling timer on disconnect ---
+      // Stall detector is stopped internally by BleCommunicationService on disconnect/failure
       await _bleCommService.disconnect();
-      // Status update and state clearing will be triggered by the connection stream listener
    }
 
   // Listen to data streams from BLE service
   void _listenToBleStreams() {
-      // Cancel previous listeners if any
       _scanSubscription?.cancel();
       _bleConnectionStateSubscription?.cancel();
       _bleDataSubscription?.cancel();
 
-      // Listen for connection state changes
       _bleConnectionStateSubscription = _bleCommService.connectionStateStream.listen(
          (isConnected) {
-            _isConnectingBle = false; // Connection attempt finished
+            _isConnectingBle = false; 
             _isBleConnected = isConnected;
 
             if (isConnected) {
                _activeConnectionType = ActiveConnectionType.ble;
-               // Use the stored device name/ID for status
                final deviceName = _selectedDevice?.name ?? _selectedDeviceId ?? "未知设备";
                _updateStatus("BLE 已连接到 $deviceName");
-               _consecutiveReadFailures = 0; // Reset TCP failure count
-               _stopTcpDataFetching(); // Stop TCP polling
-               loadLatestReadingsForChart(limit: chartDataPoints); // Load initial chart
+               _consecutiveReadFailures = 0; 
+               _stopTcpDataFetching(); 
+               loadLatestReadingsForChart(limit: chartDataPoints); 
+
+               // --- Logic to choose between Notifications/Polling ---
+               if (useBlePolling) {
+                  debugPrint("BLE Polling Mode Enabled. Starting polling timer.");
+                  _startBlePolling(); 
+                  _bleCommService.cancelDataStallDetector();
+               } else {
+                  debugPrint("BLE Notification Mode Enabled. Setting up notifications.");
+                  if (_selectedDeviceId != null) {
+                    _bleCommService.setupNotifications(_selectedDeviceId!);
+                  } else {
+                    debugPrint("Cannot setup notifications: selectedDeviceId is null.");
+                  }
+                  _stopBlePolling(); 
+               }
+               // ---------------------------------------------------
+
             } else {
-               // Handle disconnection
+               _stopBlePolling(); // --- Stop polling timer on disconnect ---
+               // Stall detector is stopped internally by BleCommunicationService
+
                if (_activeConnectionType == ActiveConnectionType.ble) {
                   _activeConnectionType = ActiveConnectionType.none;
                   _currentData = null;
                   _chartDataBuffer = [];
                }
-               // Only update status if it wasn't an explicit disconnect initiated by UI?
-               // For now, always update status.
                _updateStatus("BLE 已断开连接");
-               // Clear selection only on disconnect? Maybe keep it for reconnect attempts?
-               // _selectedDevice = null;
-               // _selectedDeviceId = null;
             }
             notifyListeners();
          },
          onError: (error) {
-            debugPrint("BLE 连接状态流错误: $error");
-            _isConnectingBle = false;
-            _isBleConnected = false;
-            if (_activeConnectionType == ActiveConnectionType.ble) {
-               _activeConnectionType = ActiveConnectionType.none;
-            }
-            _updateStatus("BLE 连接错误");
-            notifyListeners();
+             debugPrint("BLE 连接状态流错误: $error");
+             _isConnectingBle = false;
+             _isBleConnected = false;
+             _stopBlePolling(); // --- Stop polling timer on error ---
+             // Stall detector should be stopped by BleCommunicationService on connection error
+             if (_activeConnectionType == ActiveConnectionType.ble) {
+                _activeConnectionType = ActiveConnectionType.none;
+             }
+             _updateStatus("BLE 连接错误");
+             notifyListeners();
          }
       );
 
-      // Listen for incoming sensor data
+      // Listen for incoming sensor data (This stream will receive data from BOTH notifications AND successful manual reads processed by BleCommunicationService)
       _bleDataSubscription = _bleCommService.sensorDataStream.listen(
          (sensorData) {
-             if (_activeConnectionType == ActiveConnectionType.ble) {
+             // Only process if BLE is the active connection type
+             // This check is important because manual reads might finish slightly after disconnect starts
+             if (_activeConnectionType == ActiveConnectionType.ble) { 
                 _processReceivedData(sensorData, ActiveConnectionType.ble);
+             } else {
+                 debugPrint("Ignoring BLE data received while connection type is not BLE.");
              }
          },
          onError: (error) {
             debugPrint("Error on BLE data stream: $error");
             _updateStatus("BLE 数据流错误");
             if (_isBleConnected) {
-               _disconnectBle(); // Disconnect on stream error
+               _disconnectBle(); 
             }
          },
          onDone: () {
@@ -520,9 +609,56 @@ class AppState extends ChangeNotifier {
              }
          }
       );
-
-      // Note: Scan result stream is listened to within scanBleDevices method
    }
+
+   // --- BLE Polling Methods ---
+   void _startBlePolling() {
+      _stopBlePolling(); // Ensure no duplicate timers
+      if (!_isBleConnected || _activeConnectionType != ActiveConnectionType.ble || !useBlePolling) {
+          return; // Don't start if not connected via BLE or polling disabled
+      }
+      
+      debugPrint("Starting BLE polling with interval: $blePollingIntervalMs ms");
+      _blePollingTimer = Timer.periodic(Duration(milliseconds: blePollingIntervalMs), (_) {
+         // Double-check conditions inside timer callback as well
+         if (_isBleConnected && _activeConnectionType == ActiveConnectionType.ble && useBlePolling) {
+             _pollBleData();
+         } else {
+             _stopBlePolling(); // Stop if conditions no longer met
+         }
+      });
+      // Optional: Trigger an immediate poll on start?
+      // _pollBleData(); // Decide if you want an immediate read or wait for first interval
+   }
+
+   void _stopBlePolling() {
+      if (_blePollingTimer != null) {
+          debugPrint("Stopping BLE polling timer.");
+          _blePollingTimer?.cancel();
+          _blePollingTimer = null;
+      }
+   }
+
+   Future<void> _pollBleData() async {
+      if (!_isBleConnected || _activeConnectionType != ActiveConnectionType.ble || !useBlePolling) {
+          return;
+      }
+      
+      debugPrint("Polling BLE data...");
+      // Access constants directly (assuming import)
+      final characteristicsToPoll = [
+         TEMP_CHAR_UUID, 
+         HUMID_CHAR_UUID,
+         LUX_CHAR_UUID,
+         NOISE_CHAR_UUID,
+      ];
+
+      for (String charUuid in characteristicsToPoll) {
+         // Use the public-ish method from BleCommunicationService
+         _bleCommService.manualReadCharacteristic(charUuid);
+      }
+   }
+   // --- End BLE Polling Methods ---
 
 
    // --- Common Data Processing (Keep as is) ---
@@ -627,9 +763,9 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _stopTcpDataFetching();
+    _stopBlePolling(); // --- Stop BLE polling timer on dispose ---
     _tcpCommService.dispose(); // Dispose TCP service
 
-    // Cancel all BLE stream subscriptions
     _scanSubscription?.cancel();
     _bleConnectionStateSubscription?.cancel();
     _bleDataSubscription?.cancel();
