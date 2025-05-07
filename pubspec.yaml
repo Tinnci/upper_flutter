@@ -105,11 +105,17 @@ flutter:
 flutter_icons:
   android: true
   ios: true
-  image_path: "assets/images/icon.png" # 这个仍然是主图标，用于iOS, Windows, macOS等
-  # image_path_android: "assets/images/icon_android.png" # (可选) 如果安卓有单独图标
-  # image_path_ios: "assets/images/icon_ios.png"       # (可选) 如果iOS有单独图标
+  image_path: "assets/images/icon.png" # 这个仍然是主图标，用于iOS, Windows, macOS等，以及不支持主题图标的安卓版本
+
+  # 标准自适应图标设置 (仍然需要，作为不支持主题图标时的回退)
   adaptive_icon_background: "#FFFFFF"  # (可选) 安卓自适应图标背景色，你可以根据需要修改或移除
-  adaptive_icon_foreground: "assets/images/foreground.png" # <--- 设置安卓自适应图标前景
+  adaptive_icon_foreground: "assets/images/foreground.png" # 你的标准前景图标
+
+  # Material You 主题图标 (Android 12+):
+  # 提供一个单色版本的图标 (通常是白色 Logo，透明背景)
+  # 用户指明 foreground.png 即为单色图标
+  monochrome: "assets/images/foreground.png" # <--- 新增这个配置
+
   windows:
     generate: true
     image_path: "assets/images/icon.png"
