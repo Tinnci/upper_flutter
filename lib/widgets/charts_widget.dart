@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
+import 'dart:math' as math; // 新增导入
 // import '../models/sensor_data.dart'; // Unused import
 
 // Represents a single chart card
@@ -65,18 +66,34 @@ class SingleChartCard extends StatelessWidget {
      }
 
      // --- X 轴范围和间隔计算 ---
-     final verticalRange = maxX - minX; // 现在总是 60000 + 1000 = 61000 (约)
+     // final verticalRange = maxX - minX; // verticalRange 现在是 xSpan
 
      // 水平间隔 (Y 轴)
      final horizontalRange = maxY - minY;
      final safeHorizontalInterval = horizontalRange <= 0 ? 1.0 : horizontalRange / 5;
      
-     // 垂直间隔 (X 轴) - 网格线
-     // 60秒内，每10秒画一条垂直线比较合适
-     const double verticalGridInterval = 10000.0; // 10 seconds
+     // --- X轴动态间隔计算 ---
+     final double xSpan = (maxX - minX).abs(); // 获取X轴的实际跨度
      
-     // 底部标题间隔 - 每15秒显示一个标签
-     const double bottomTitleInterval = 15000.0; // 15 seconds
+     final double dynamicBottomTitleInterval;
+     final double dynamicVerticalGridInterval;
+     
+     const double minSensibleXInterval = 1000.0; // X轴上最小合理的间隔 (例如1秒)
+
+     if (xSpan <= 100.0) { // 如果X轴跨度非常小 (例如因为错误或只有一个点被强制很近)
+         dynamicBottomTitleInterval = 15000.0; // 使用原先的默认值
+         dynamicVerticalGridInterval = 10000.0;
+     } else if (xSpan < 5000.0) { // X轴跨度小于5秒
+         dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 2.0); // 尝试2-3个标签
+         dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 2.0); // 尝试2-3条网格线
+     } else if (xSpan < 20000.0) { // X轴跨度小于20秒
+         dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 3.0); // 尝试3-4个标签
+         dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 4.0); // 尝试4-5条网格线
+     } else { // X轴跨度较大 (例如20秒到60秒或更多)
+         dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 4.0); // 尝试4-5个标签
+         dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 6.0); // 尝试6-7条网格线
+     }
+     // --- 结束 X轴动态间隔计算 ---
 
      // --- 新增：过滤 spots ---
      // 只保留 x 值 (时间戳) 在 minX 和 maxX 范围内的点
@@ -104,8 +121,8 @@ class SingleChartCard extends StatelessWidget {
                     show: true,
                     drawVerticalLine: true,
                     horizontalInterval: safeHorizontalInterval, 
-                    // 使用固定的垂直网格间隔
-                    verticalInterval: verticalGridInterval, 
+                    // 使用动态计算的垂直网格间隔
+                    verticalInterval: dynamicVerticalGridInterval, 
                     getDrawingHorizontalLine: (value) {
                       return const FlLine(color: Colors.grey, strokeWidth: 0.5);
                     },
@@ -121,8 +138,8 @@ class SingleChartCard extends StatelessWidget {
                       sideTitles: SideTitles(
                         showTitles: true,
                         reservedSize: 22,
-                        // 使用固定的底部标题间隔
-                        interval: bottomTitleInterval, 
+                        // 使用动态计算的底部标题间隔
+                        interval: dynamicBottomTitleInterval, 
                         getTitlesWidget: (value, meta) {
                           // 仅当值在有效范围内时尝试格式化
                           if (value >= minX && value <= maxX) {

@@ -711,9 +711,32 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final sensorDataList = appState.latestReadings;
     final colorScheme = Theme.of(context).colorScheme;
 
-    final now = DateTime.now().millisecondsSinceEpoch.toDouble();
-    final minTimestamp = now - 60000.0;
-    final maxTimestamp = now + 1000.0;
+    final double now = DateTime.now().millisecondsSinceEpoch.toDouble();
+    double minChartX, maxChartX;
+
+    maxChartX = now + 1000.0; // X轴结束点始终是当前时间略后
+
+    if (sensorDataList.isEmpty) {
+      minChartX = now - 60000.0; // 没有数据时，默认显示过去60秒的空窗口
+    } else {
+      final double firstDataTs = sensorDataList.first.timestamp.millisecondsSinceEpoch.toDouble();
+      final double lastDataTs = sensorDataList.last.timestamp.millisecondsSinceEpoch.toDouble();
+      double fixedWindowMinX = now - 60000.0; // 标准的60秒前回溯点
+
+      // 智能缩放条件:
+      // 1. 数据点多于一个
+      // 2. 第一个数据点的时间戳在标准的60秒前回溯点之后 (即数据整体比较新)
+      // 3. 所有当前数据的实际时间跨度小于59秒
+      if (sensorDataList.length > 1 &&
+          firstDataTs > fixedWindowMinX &&
+          (lastDataTs - firstDataTs) < 59000.0) {
+        minChartX = firstDataTs - 1000.0; // X轴从第一个数据点略早一点开始，实现缩放
+      } else {
+        // 不满足缩放条件，则使用标准的60秒窗口
+        // (情况包括: 数据点只有一个, 数据很旧, 或数据实际跨度较长)
+        minChartX = fixedWindowMinX;
+      }
+    }
 
     if (sensorDataList.isEmpty) {
       return Card(
@@ -743,11 +766,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final List<FlSpot> lightSpots = _createSpots(sensorDataList, (data) => data.lightIntensity);
 
     // 创建图表卡片列表 (只创建一次)
+    // 将计算好的 minChartX 和 maxChartX 传递给 SingleChartCard
     final List<Widget> chartCards = [
-      SingleChartCard(title: '噪声 (dB)', spots: noiseSpots, color: colorScheme.error, minX: minTimestamp, maxX: maxTimestamp),
-      SingleChartCard(title: '温度 (°C)', spots: tempSpots, color: colorScheme.primary, minX: minTimestamp, maxX: maxTimestamp),
-      SingleChartCard(title: '湿度 (%)', spots: humiditySpots, color: colorScheme.tertiary, minX: minTimestamp, maxX: maxTimestamp),
-      SingleChartCard(title: '光照 (lux)', spots: lightSpots, color: colorScheme.secondary, minX: minTimestamp, maxX: maxTimestamp),
+      SingleChartCard(title: '噪声 (dB)', spots: noiseSpots, color: colorScheme.error, minX: minChartX, maxX: maxChartX),
+      SingleChartCard(title: '温度 (°C)', spots: tempSpots, color: colorScheme.primary, minX: minChartX, maxX: maxChartX),
+      SingleChartCard(title: '湿度 (%)', spots: humiditySpots, color: colorScheme.tertiary, minX: minChartX, maxX: maxChartX),
+      SingleChartCard(title: '光照 (lux)', spots: lightSpots, color: colorScheme.secondary, minX: minChartX, maxX: maxChartX),
     ];
 
     return Card(
