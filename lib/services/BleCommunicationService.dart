@@ -182,11 +182,9 @@ class BleCommunicationService {
 
     try {
       debugPrint("Discovering services for $deviceId...");
-      // Discover services first (required before setNotifiable)
       await UniversalBle.discoverServices(deviceId); // 确保这里有 await
       debugPrint("Services discovered for $deviceId. Setting notifications...");
 
-      // Define the characteristics to enable notifications for
       final characteristicsToEnable = [
          TEMP_CHAR_UUID,
          HUMID_CHAR_UUID,
@@ -195,11 +193,12 @@ class BleCommunicationService {
       ];
 
       bool anySuccess = false;
-      // --- 修改开始: 确保按顺序 await 每个 setNotifiable ---
+      List<String> successfullySubscribed = []; // 记录成功订阅的UUID (小写)
+
       for (String charUuid in characteristicsToEnable) {
          try {
             debugPrint("Attempting to enable notifications for $charUuid on $deviceId...");
-            await UniversalBle.setNotifiable( // <--- 添加 await
+            await UniversalBle.setNotifiable(
                deviceId,
                ENV_SENSE_SERVICE_UUID,
                charUuid,
@@ -207,29 +206,38 @@ class BleCommunicationService {
             );
             debugPrint("Successfully enabled notifications for $charUuid on $deviceId");
             final lcCharUuid = charUuid.toLowerCase();
-            _subscribedCharUuids.add(lcCharUuid); // --- 新增: 添加到已订阅列表 ---
-            _lastDataReceivedTime[lcCharUuid] = DateTime.now(); // --- 新增: 初始化最后接收时间 ---
+            _subscribedCharUuids.add(lcCharUuid);
+            _lastDataReceivedTime[lcCharUuid] = DateTime.now(); // 初始化时间戳
+            successfullySubscribed.add(lcCharUuid); // 添加到成功列表
             anySuccess = true;
-            // 建议：如果 Android 仍然有问题，可以考虑在每个 await 之后加入一个非常短暂的延迟
-            // await Future.delayed(const Duration(milliseconds: 100)); 
+            // await Future.delayed(const Duration(milliseconds: 100)); // 可选延迟
          } catch (e) {
             debugPrint("Error enabling notifications for $charUuid on $deviceId: $e");
          }
       }
-      // --- 修改结束 ---
 
       if (anySuccess) {
-         _notificationsEnabled = true; // Set flag only if at least one succeeded
+         _notificationsEnabled = true;
          debugPrint("Notification setup process complete for $deviceId.");
-         _startDataStallDetector(); // --- 新增: 启动数据停滞检测器 ---
+
+         // --- 新增: 初始手动读取 ---
+         debugPrint("Performing initial manual read for subscribed characteristics...");
+         for (String lcCharUuid in successfullySubscribed) {
+             // 调用手动读取，但不在这里 await，让它们并发启动
+             // _manualReadCharacteristic 内部会处理 await 和错误
+             _manualReadCharacteristic(lcCharUuid);
+         }
+         // --- 结束 新增 ---
+
+         _startDataStallDetector(); // 在发起初始读取后启动停滞检测器
       } else {
           debugPrint("Warning: Failed to subscribe to any notifications for $deviceId.");
-          _cancelDataStallDetector(); // --- 新增: 如果没有任何成功，则取消检测器 ---
+          _cancelDataStallDetector();
       }
 
     } catch (e) {
       debugPrint("Error during service discovery or notification setup for $deviceId: $e");
-      _cancelDataStallDetector(); // --- 新增: 出错时取消检测器 ---
+      _cancelDataStallDetector();
       await disconnect();
     }
   }
@@ -254,32 +262,43 @@ class BleCommunicationService {
     final now = DateTime.now();
     debugPrint("[BLE Stall Detector] Checking for stalled characteristics. Subscribed: ${_subscribedCharUuids.length}");
 
-    for (String charUuid in _subscribedCharUuids) {
-      final lastTime = _lastDataReceivedTime[charUuid];
-      // 如果 lastTime 为 null (理论上不应该，因为在 setupNotifications 中初始化了)
-      // 或者数据已经超时
+    // 使用 toList() 创建副本，避免在迭代时修改 Set 导致的问题 (虽然当前逻辑可能没问题，但更安全)
+    for (String lcCharUuid in _subscribedCharUuids.toList()) { 
+      final lastTime = _lastDataReceivedTime[lcCharUuid];
+      
+      // 如果 lastTime 为 null (理论上不应该) 或数据已超时
       if (lastTime == null || now.difference(lastTime) > _dataStallTimeout) {
-        debugPrint("[BLE Stall Detector] Data stall detected for $charUuid (last update: $lastTime). Manually reading...");
-        _manualReadCharacteristic(charUuid);
-        // 立即更新时间戳，以避免在读取完成前（即 onValueChange 更新前）的下一个检测周期内重复触发
-        // 如果读取成功，onValueChange 会再次更新它为更精确的时间
-        _lastDataReceivedTime[charUuid] = now;
+        debugPrint("[BLE Stall Detector] Data stall detected for $lcCharUuid (last update: $lastTime). Manually reading...");
+        // --- 修改: 移除检测到停滞时的立即时间戳更新 ---
+        _manualReadCharacteristic(lcCharUuid); 
+        // _lastDataReceivedTime[lcCharUuid] = now; // <-- 移除或注释掉这一行
       }
     }
   }
 
   Future<void> _manualReadCharacteristic(String characteristicUuid) async {
+    // 确保传入的 characteristicUuid 已经是小写
     if (_connectedDeviceId == null) return;
+    final lcCharUuid = characteristicUuid.toLowerCase(); // 再次确保是小写
+
     try {
-      debugPrint("[BLE Manual Read] Attempting manual read for $characteristicUuid on $_connectedDeviceId");
-      // universal_ble 的 readValue 响应会通过 onValueChange 回调
-      await UniversalBle.readValue(
+      debugPrint("[BLE Manual Read] Attempting manual read for $lcCharUuid on $_connectedDeviceId");
+      
+      final Uint8List readData = await UniversalBle.readValue(
           _connectedDeviceId!,
-          ENV_SENSE_SERVICE_UUID, // 确保这是正确的服务UUID
-          characteristicUuid);
-      debugPrint("[BLE Manual Read] Manual read request sent for $characteristicUuid.");
+          ENV_SENSE_SERVICE_UUID, 
+          lcCharUuid, // 使用小写UUID
+      );
+
+      debugPrint("[BLE Manual Read SUCCEEDED] Char: $lcCharUuid, Value: $readData (length: ${readData.length})");
+      
+      // --- 修改: 仅在成功时更新时间戳 ---
+      _lastDataReceivedTime[lcCharUuid] = DateTime.now(); 
+      _parseAndProcessData(lcCharUuid, readData);
+
     } catch (e) {
-      debugPrint("[BLE Manual Read] Error during manual read for $characteristicUuid: $e");
+      debugPrint("[BLE Manual Read FAILED] Error during manual read for $lcCharUuid: $e");
+      // 读取失败时不更新 _lastDataReceivedTime，允许下次停滞检测再次触发
     }
   }
   // --- 结束 新增 ---
