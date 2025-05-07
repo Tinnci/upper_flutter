@@ -102,7 +102,7 @@ flutter:
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
 
-flutter_icons:
+flutter_launchericons:
   android: true
   ios: true
   image_path: "assets/images/icon.png" # 这个仍然是主图标，用于iOS, Windows, macOS等，以及不支持主题图标的安卓版本

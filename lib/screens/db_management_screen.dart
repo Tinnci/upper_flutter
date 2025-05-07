@@ -11,7 +11,9 @@ import '../utils/keyboard_intents.dart'; // 导入 Intents
 
 // Renamed from DatabaseViewerScreen
 class DbManagementScreen extends StatefulWidget {
-  const DbManagementScreen({super.key});
+  final String? initialSensorFocus; // 新增参数
+
+  const DbManagementScreen({super.key, this.initialSensorFocus}); // 修改构造函数
 
   @override
   // Renamed from _DatabaseViewerScreenState
@@ -266,6 +268,11 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
   Widget build(BuildContext context) {
     // Determine if the screen is narrow
     final isSmallScreen = MediaQuery.of(context).size.width < 600;
+    
+    String appBarTitle = '数据库管理';
+    if (widget.initialSensorFocus != null && widget.initialSensorFocus!.isNotEmpty) {
+      appBarTitle += ' - ${widget.initialSensorFocus}';
+    }
 
     // Wrap with Actions widget
     return Actions(
@@ -277,7 +284,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
          autofocus: true, // Request focus when the screen is built
          child: Scaffold(
            appBar: AppBar(
-             title: const Text('数据库管理'), // Updated title
+             title: Text(appBarTitle), // 使用动态标题
              actions: [
                IconButton(
                  icon: const Icon(Icons.refresh),

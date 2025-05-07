@@ -11,6 +11,9 @@ class SingleChartCard extends StatelessWidget {
   final Color color;
   final double minX;
   final double maxX;
+  final bool isLoading; // 新增：加载状态
+  final String sensorIdentifier; // 新增：传感器标识 (例如 "Noise", "Temperature")
+  final Function(String sensorIdentifier)? onHistoryTap; // 新增：查看历史回调
 
   const SingleChartCard({
     super.key,
@@ -19,13 +22,16 @@ class SingleChartCard extends StatelessWidget {
     required this.color,
     required this.minX,
     required this.maxX,
+    this.isLoading = false, // 默认非加载状态
+    required this.sensorIdentifier,
+    this.onHistoryTap,
   });
 
   @override
   Widget build(BuildContext context) {
     // 直接调用构建单个卡片的方法
     // 注意：现在 minX 和 maxX 是通过构造函数传入的
-    return _buildChartCard(title, spots, color, minX, maxX);
+    return _buildChartCard(context, title, spots, color, minX, maxX); // 传入 context
   }
 
   // 这个方法现在将在 HomeScreen 中使用，或者可以保留为静态方法
@@ -40,7 +46,7 @@ class SingleChartCard extends StatelessWidget {
 
   // 构建单个图表的 Card
   // 构建单个图表的 Card (保持不变，但现在是 build 方法调用的核心)
-  Widget _buildChartCard(String title, List<FlSpot> spots, Color color, double minX, double maxX) {
+  Widget _buildChartCard(BuildContext context, String title, List<FlSpot> spots, Color color, double minX, double maxX) { // 添加 context 参数
      // 动态计算 Y 轴范围
      double minY = 0; // Default min Y
      double maxY = 10; // Default max Y
@@ -108,10 +114,29 @@ class SingleChartCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14)),
+            Row( // 使用 Row 来放置标题和按钮
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Flexible( // 防止标题过长时溢出
+                  child: Text(
+                    title,
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (onHistoryTap != null)
+                  IconButton(
+                    icon: Icon(Icons.history, size: 20, color: Theme.of(context).colorScheme.primary),
+                    tooltip: '查看历史数据',
+                    onPressed: () => onHistoryTap!(sensorIdentifier),
+                  ),
+              ],
+            ),
             const SizedBox(height: 8),
             Expanded(
-              child: LineChart(
+              child: isLoading // 根据 isLoading 状态显示图表或加载指示器
+                  ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: color))
+                  : LineChart(
                 LineChartData(
                   minX: minX,
                   maxX: maxX,
@@ -190,6 +215,7 @@ class SingleChartCard extends StatelessWidget {
                   ],
                   lineTouchData: LineTouchData(
                      enabled: true,
+                     handleBuiltInTouches: true, // 启用内置触摸处理（如图例）
                      touchTooltipData: LineTouchTooltipData(
                        getTooltipColor: (touchedSpot) => Colors.blueGrey.withAlpha(204), // Use integer alpha
                        getTooltipItems: (List<LineBarSpot> touchedBarSpots) {

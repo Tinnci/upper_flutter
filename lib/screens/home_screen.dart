@@ -534,69 +534,8 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
        context: context,
        isScrollControlled: true, // Allows modal to take more height
        builder: (modalContext) {
-         // Use a Consumer inside the modal to react to scan result updates
-         return Consumer<AppState>(
-            builder: (context, state, child) {
-               return DraggableScrollableSheet( // Makes it resizable
-                  expand: false, // Doesn't take full screen initially
-                  initialChildSize: 0.5, // Start at half height
-                  minChildSize: 0.3,
-                  maxChildSize: 0.8,
-                  builder: (_, scrollController) {
-                      return Container(
-                         padding: EdgeInsets.all(16),
-                         child: Column(
-                           mainAxisSize: MainAxisSize.min,
-                           children: [
-                              Row(
-                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                 children: [
-                                     Text("扫描到的 BLE 设备", style: Theme.of(context).textTheme.titleLarge),
-                                     // Show stop button or indicator
-                                     state.isScanningBle
-                                         ? TextButton.icon(
-                                               icon: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                                               label: Text("停止"),
-                                               onPressed: () => state.stopBleScan(),
-                                         )
-                                         : IconButton(icon: Icon(Icons.close), onPressed: () => Navigator.pop(modalContext)),
-                                 ],
-                              ),
-                              Divider(),
-                              Expanded(
-                                 child: state.scanResults.isEmpty && !state.isScanningBle
-                                      ? Center(child: Text("未找到设备。请确保设备已开启并靠近。"))
-                                      : ListView.builder(
-                                           controller: scrollController, // Link controller
-                                           itemCount: state.scanResults.length,
-                                           itemBuilder: (context, index) {
-                                             final device = state.scanResults[index];
-                                             final deviceName = (device.name?.isNotEmpty ?? false)
-                                                 ? device.name!
-                                                 : "Unknown Device";
-                                             final deviceId = device.deviceId;
-                                             final rssi = device.rssi ?? "N/A"; // Handle null RSSI
-                                             return ListTile(
-                                                leading: Icon(Icons.bluetooth),
-                                                title: Text(deviceName),
-                                                subtitle: Text(deviceId),
-                                                trailing: Text("$rssi dBm"),
-                                                onTap: () {
-                                                   state.stopBleScan(); // Stop scanning on selection
-                                                   state.selectDevice(device); // Pass the BleDevice object
-                                                   Navigator.pop(modalContext); // Close modal
-                                                },
-                                             );
-                                           },
-                                         ),
-                              ),
-                           ],
-                         ),
-                      );
-                  },
-               );
-            }
-         );
+         // 直接使用封装的 StatefulWidget
+         return _BleScanResultsView(appState: appState);
        },
      ).whenComplete(() {
         // Ensure scan stops when modal is dismissed externally
@@ -768,10 +707,66 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     // 创建图表卡片列表 (只创建一次)
     // 将计算好的 minChartX 和 maxChartX 传递给 SingleChartCard
     final List<Widget> chartCards = [
-      SingleChartCard(title: '噪声 (dB)', spots: noiseSpots, color: colorScheme.error, minX: minChartX, maxX: maxChartX),
-      SingleChartCard(title: '温度 (°C)', spots: tempSpots, color: colorScheme.primary, minX: minChartX, maxX: maxChartX),
-      SingleChartCard(title: '湿度 (%)', spots: humiditySpots, color: colorScheme.tertiary, minX: minChartX, maxX: maxChartX),
-      SingleChartCard(title: '光照 (lux)', spots: lightSpots, color: colorScheme.secondary, minX: minChartX, maxX: maxChartX),
+      SingleChartCard(
+        title: '噪声 (dB)',
+        spots: noiseSpots,
+        color: colorScheme.error,
+        minX: minChartX,
+        maxX: maxChartX,
+        sensorIdentifier: '噪声',
+        isLoading: false,
+        onHistoryTap: (sensorId) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
+          );
+        },
+      ),
+      SingleChartCard(
+        title: '温度 (°C)',
+        spots: tempSpots,
+        color: colorScheme.primary,
+        minX: minChartX,
+        maxX: maxChartX,
+        sensorIdentifier: '温度',
+        isLoading: false,
+        onHistoryTap: (sensorId) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
+          );
+        },
+      ),
+      SingleChartCard(
+        title: '湿度 (%)',
+        spots: humiditySpots,
+        color: colorScheme.tertiary,
+        minX: minChartX,
+        maxX: maxChartX,
+        sensorIdentifier: '湿度',
+        isLoading: false,
+        onHistoryTap: (sensorId) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
+          );
+        },
+      ),
+      SingleChartCard(
+        title: '光照 (lux)',
+        spots: lightSpots,
+        color: colorScheme.secondary,
+        minX: minChartX,
+        maxX: maxChartX,
+        sensorIdentifier: '光照',
+        isLoading: false,
+        onHistoryTap: (sensorId) {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
+          );
+        },
+      ),
     ];
 
     return Card(
@@ -789,58 +784,46 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             LayoutBuilder(
               builder: (context, constraints) {
                 // 决定每行显示多少图表
-                // 在窄屏幕 (<600) 上每行1个，中等屏幕 (<1100) 每行2个，宽屏幕每行4个
-                int crossAxisCount = 4;
+                int crossAxisCount;
                 if (constraints.maxWidth < 600) {
                   crossAxisCount = 1;
                 } else if (constraints.maxWidth < 1100) {
                   crossAxisCount = 2;
+                } else {
+                  crossAxisCount = 4; // 在更宽的屏幕上保持最多4列，图表会变宽
                 }
                 
-                // 计算图表高度，如果垂直排列需要更高的高度
+                // 计算图表高度
                 double chartHeight = (crossAxisCount <= 2) ? 200 : 260; 
-                 // 为垂直布局增加额外高度
-                double totalHeight = (crossAxisCount == 1) 
-                    ? chartHeight * chartCards.length + (chartCards.length -1) * 12.0 // 垂直间距
-                    : (crossAxisCount == 2) 
-                        ? chartHeight * (chartCards.length / 2).ceil() + ((chartCards.length / 2).ceil() -1) * 12.0
-                        : chartHeight;
+                
+                // 根据列数和图表数量计算总高度
+                double mainAxisSpacing = 12.0;
+                int rowCount = (chartCards.length / crossAxisCount).ceil();
+                double totalHeight = (chartHeight * rowCount) + (mainAxisSpacing * (rowCount - 1).clamp(0, double.infinity));
+                if (rowCount == 0) totalHeight = 0; // 处理没有图表的情况
 
-                if (crossAxisCount == 1 || crossAxisCount == 2) {
-                   // 使用 GridView for 1 or 2 columns
-                   return SizedBox(
-                     height: totalHeight, // Set height for GridView
-                     child: GridView.builder(
-                       physics: NeverScrollableScrollPhysics(), // Disable GridView scrolling
-                       gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                         crossAxisCount: crossAxisCount,
-                         crossAxisSpacing: 12.0,
-                         mainAxisSpacing: 12.0,
-                         childAspectRatio: (constraints.maxWidth / crossAxisCount) / chartHeight * 1.2, // Adjust aspect ratio
-                       ),
-                       itemCount: chartCards.length,
-                       itemBuilder: (context, index) => SizedBox( // Ensure chart takes full grid cell height
-                          height: chartHeight, 
-                          child: chartCards[index]
-                       ),
-                     ),
-                   );
-                } else {
-                   // 使用水平滚动 Row for 4 columns (original behavior on wide screens)
-                   return SizedBox(
-                     height: chartHeight, // Fixed height for Row
-                     child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: chartCards.map((card) => Container(
-                            width: (constraints.maxWidth - (crossAxisCount-1)*12) / crossAxisCount, // Calculate width dynamically
-                            padding: const EdgeInsets.only(right: 12.0), // Use padding instead of margin
-                            child: card,
-                          )).toList(),
-                        ),
-                     ),
-                   );
-                }
+                // 始终使用 GridView
+                return SizedBox(
+                  height: totalHeight, // 为 GridView 设置计算好的高度
+                  child: GridView.builder(
+                    physics: const NeverScrollableScrollPhysics(), // 禁用 GridView 自身的滚动
+                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: crossAxisCount,
+                      crossAxisSpacing: 12.0,
+                      mainAxisSpacing: mainAxisSpacing,
+                      // 调整 childAspectRatio 以更好地适应内容
+                      // childAspectRatio: (constraints.maxWidth / crossAxisCount) / chartHeight,
+                      childAspectRatio: crossAxisCount == 1 
+                                        ? (constraints.maxWidth / chartHeight) * 0.9 // 单列时，可能需要更高的比例
+                                        : ( (constraints.maxWidth - (crossAxisCount -1) * 12) / crossAxisCount ) / chartHeight * 1.1, // 多列时
+                    ),
+                    itemCount: chartCards.length,
+                    itemBuilder: (context, index) => SizedBox(
+                      height: chartHeight, // 确保每个图表卡片占据声明的高度
+                      child: chartCards[index],
+                    ),
+                  ),
+                );
               },
             ),
           ],
@@ -864,5 +847,236 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         return FlSpot(x, 0);
       }
     }).toList();
+  }
+}
+
+// --- 新增：BLE 扫描结果视图 Widget ---
+enum _BleSortCriteria { name, rssi }
+
+class _BleScanResultsView extends StatefulWidget {
+  final AppState appState;
+
+  const _BleScanResultsView({required this.appState});
+
+  @override
+  State<_BleScanResultsView> createState() => _BleScanResultsViewState();
+}
+
+class _BleScanResultsViewState extends State<_BleScanResultsView> {
+  final TextEditingController _filterController = TextEditingController();
+  String _filterText = "";
+  _BleSortCriteria _sortCriteria = _BleSortCriteria.rssi;
+  bool _sortAscending = false; // RSSI 默认降序, Name 默认升序
+
+  @override
+  void initState() {
+    super.initState();
+    _filterController.addListener(() {
+      if (mounted) {
+        setState(() {
+          _filterText = _filterController.text.toLowerCase();
+        });
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _filterController.dispose();
+    super.dispose();
+  }
+
+  List<dynamic> _getProcessedResults() {
+    List<dynamic> results = List.from(widget.appState.scanResults);
+
+    // 筛选
+    if (_filterText.isNotEmpty) {
+      results = results.where((device) {
+        if (device == null) return false; // 处理列表中的 null 设备
+        
+        dynamic nameDyn = device.name;
+        String nameStr = "";
+        if (nameDyn is String && nameDyn.isNotEmpty) {
+          nameStr = nameDyn.toLowerCase();
+        }
+
+        dynamic idDyn = device.deviceId;
+        String idStr = "";
+        if (idDyn is String) {
+          idStr = idDyn.toLowerCase();
+        }
+        return nameStr.contains(_filterText) || idStr.contains(_filterText);
+      }).toList();
+    }
+
+    // 排序
+    results.sort((a, b) {
+      if (a == null && b == null) return 0;
+      // 根据 _sortAscending 将 null 排在前面或后面
+      if (a == null) return _sortAscending ? -1 : 1; 
+      if (b == null) return _sortAscending ? 1 : -1;
+
+      int comparison;
+      if (_sortCriteria == _BleSortCriteria.rssi) {
+        dynamic rssiADyn = a.rssi;
+        dynamic rssiBDyn = b.rssi;
+        // 如果 rssi 是 int 类型则使用，否则视为较小值
+        int rssiAVal = (rssiADyn is int) ? rssiADyn : -200; // 使用一个足够小的值代表无效RSSI
+        int rssiBVal = (rssiBDyn is int) ? rssiBDyn : -200;
+        comparison = rssiAVal.compareTo(rssiBVal);
+      } else { // Sort by name
+        dynamic nameADyn = a.name;
+        String nameAStr = "Unknown Device"; // 默认名称
+        if (nameADyn is String && nameADyn.isNotEmpty) {
+          nameAStr = nameADyn;
+        }
+        dynamic nameBDyn = b.name;
+        String nameBStr = "Unknown Device";
+        if (nameBDyn is String && nameBDyn.isNotEmpty) {
+          nameBStr = nameBDyn;
+        }
+        comparison = nameAStr.toLowerCase().compareTo(nameBStr.toLowerCase());
+      }
+      return _sortAscending ? comparison : -comparison;
+    });
+    return results;
+  }
+
+
+  @override
+  Widget build(BuildContext context) {
+    final processedResults = _getProcessedResults();
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.5,
+      minChildSize: 0.3,
+      maxChildSize: 0.8,
+      builder: (_, scrollController) {
+        return Container(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text("扫描到的 BLE 设备", style: Theme.of(context).textTheme.titleLarge),
+                  widget.appState.isScanningBle
+                      ? TextButton.icon(
+                          icon: const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                          label: const Text("停止"),
+                          onPressed: () => widget.appState.stopBleScan(),
+                        )
+                      : IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+                ],
+              ),
+              const Divider(),
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 8.0),
+                child: TextField(
+                  controller: _filterController,
+                  decoration: InputDecoration(
+                    hintText: '按名称或 ID 筛选...',
+                    isDense: true,
+                    prefixIcon: Icon(Icons.search, size: 20),
+                    suffixIcon: _filterText.isNotEmpty
+                        ? IconButton(
+                            icon: Icon(Icons.clear, size: 20),
+                            onPressed: () {
+                              _filterController.clear();
+                            },
+                          )
+                        : null,
+                  ),
+                ),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  Text("排序:", style: Theme.of(context).textTheme.labelSmall),
+                  const SizedBox(width: 4),
+                  FilterChip(
+                    label: Text("RSSI", style: Theme.of(context).textTheme.labelSmall),
+                    selected: _sortCriteria == _BleSortCriteria.rssi,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _sortCriteria = _BleSortCriteria.rssi;
+                          _sortAscending = false; // RSSI 默认降序
+                        });
+                      }
+                    },
+                    showCheckmark: false,
+                    avatar: _sortCriteria == _BleSortCriteria.rssi
+                          ? Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 14)
+                          : null,
+                  ),
+                  const SizedBox(width: 8),
+                  FilterChip(
+                    label: Text("名称", style: Theme.of(context).textTheme.labelSmall),
+                    selected: _sortCriteria == _BleSortCriteria.name,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                           _sortCriteria = _BleSortCriteria.name;
+                           _sortAscending = true; // 名称默认升序
+                        });
+                      }
+                    },
+                     showCheckmark: false,
+                     avatar: _sortCriteria == _BleSortCriteria.name
+                          ? Icon(_sortAscending ? Icons.arrow_upward : Icons.arrow_downward, size: 14)
+                          : null,
+                  ),
+                ],
+              ),
+              Expanded(
+                child: processedResults.isEmpty && !widget.appState.isScanningBle
+                    ? const Center(child: Text("未找到设备或无匹配结果。"))
+                    : ListView.builder(
+                        controller: scrollController,
+                        itemCount: processedResults.length,
+                        itemBuilder: (listViewContext, index) {
+                          final device = processedResults[index];
+                          if (device == null) return const SizedBox.shrink(); // 如果设备为空，则不显示
+
+                          dynamic nameDyn = device.name;
+                          String deviceName = "Unknown Device";
+                          if (nameDyn is String && nameDyn.isNotEmpty) {
+                            deviceName = nameDyn;
+                          }
+
+                          dynamic idDyn = device.deviceId;
+                          String deviceId = "Unknown ID";
+                          if (idDyn is String && idDyn.isNotEmpty) { // 确保ID也是字符串且非空
+                            deviceId = idDyn;
+                          }
+                          
+                          dynamic rssiDyn = device.rssi;
+                          String rssiText = "N/A";
+                          if (rssiDyn is int) {
+                            rssiText = "$rssiDyn dBm";
+                          }
+
+                          return ListTile(
+                            leading: const Icon(Icons.bluetooth),
+                            title: Text(deviceName),
+                            subtitle: Text(deviceId),
+                            trailing: Text(rssiText),
+                            onTap: () {
+                              widget.appState.stopBleScan();
+                              widget.appState.selectDevice(device);
+                              Navigator.pop(context); // Close modal
+                            },
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 }
