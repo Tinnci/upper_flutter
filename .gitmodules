@@ -1,0 +1,3 @@
+[submodule "packages/universal_ble_local"]
+	path = packages/universal_ble_local
+	url = https://github.com/Tinnci/universal_ble.git
