@@ -109,6 +109,57 @@ class SettingsScreen extends StatelessWidget {
     );
   }
 
+  // Helper to build number selector (can be adapted or new helper for double)
+  Widget _buildDoubleValueEditor({
+    required BuildContext context,
+    required String title,
+    String? subtitle,
+    required double value,
+    required String settingKey, // Key to update in AppState
+    required AppState appState,
+    String unit = "", // Optional unit display
+    int decimalPlaces = 1, // Number of decimal places for display
+  }) {
+    return ListTile(
+      title: Text(title),
+      subtitle: Text(subtitle ?? '当前值: ${value.toStringAsFixed(decimalPlaces)}$unit'),
+      trailing: const Icon(Icons.edit),
+      onTap: () {
+        final controller = TextEditingController(text: value.toStringAsFixed(decimalPlaces));
+        showDialog(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text('设置 $title'),
+            content: TextField(
+              controller: controller,
+              decoration: InputDecoration(
+                labelText: '值 ($unit)',
+                hintText: '例如: ${value.toStringAsFixed(decimalPlaces)}',
+              ),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('取消'),
+              ),
+              TextButton(
+                onPressed: () {
+                  final double? newValue = double.tryParse(controller.text);
+                  if (newValue != null) {
+                    appState.updateSetting(settingKey, newValue);
+                  }
+                  Navigator.pop(dialogContext);
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   // Helper to show the reset confirmation dialog
   void _showResetDialog(BuildContext context, AppState appState) {
      showDialog(
@@ -364,6 +415,56 @@ class SettingsScreen extends StatelessWidget {
                       },
                     ),
                     _buildDivider(),
+
+                    // --- 新增：实时数据显示阈值设置 ---
+                    _buildSectionTitle(context, '数据显示阈值'),
+                    _buildDoubleValueEditor(
+                      context: context,
+                      title: '噪声高阈值',
+                      subtitle: '超过此值时高亮 (dB)',
+                      value: settings.noiseThresholdHigh,
+                      settingKey: 'noiseThresholdHigh',
+                      appState: appState,
+                      unit: " dB",
+                    ),
+                    _buildDoubleValueEditor(
+                      context: context,
+                      title: '温度高阈值',
+                      subtitle: '超过此值时高亮 (°C)',
+                      value: settings.temperatureThresholdHigh,
+                      settingKey: 'temperatureThresholdHigh',
+                      appState: appState,
+                      unit: " °C",
+                    ),
+                    _buildDoubleValueEditor(
+                      context: context,
+                      title: '温度低阈值',
+                      subtitle: '低于此值时高亮 (°C)',
+                      value: settings.temperatureThresholdLow,
+                      settingKey: 'temperatureThresholdLow',
+                      appState: appState,
+                      unit: " °C",
+                    ),
+                    _buildDoubleValueEditor(
+                      context: context,
+                      title: '湿度高阈值',
+                      subtitle: '超过此值时高亮 (%)',
+                      value: settings.humidityThresholdHigh,
+                      settingKey: 'humidityThresholdHigh',
+                      appState: appState,
+                      unit: " %",
+                    ),
+                    _buildDoubleValueEditor(
+                      context: context,
+                      title: '湿度低阈值',
+                      subtitle: '低于此值时高亮 (%)',
+                      value: settings.humidityThresholdLow,
+                      settingKey: 'humidityThresholdLow',
+                      appState: appState,
+                      unit: " %",
+                    ),
+                    _buildDivider(),
+                    // --- 结束阈值设置 ---
 
                     // 传感器显示设置 (可以考虑移除，如果图表总是显示所有数据)
                     // _buildSectionTitle(context, '传感器显示 (图表)'),

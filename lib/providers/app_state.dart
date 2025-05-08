@@ -36,6 +36,13 @@ class AppState extends ChangeNotifier {
   bool get useBlePolling => _settings.useBlePolling;
   int get blePollingIntervalMs => _settings.blePollingIntervalMs;
   bool get showUnnamedBleDevices => _settings.showUnnamedBleDevices;
+  // --- 新增阈值的 Getters ---
+  double get noiseThresholdHigh => _settings.noiseThresholdHigh;
+  double get temperatureThresholdHigh => _settings.temperatureThresholdHigh;
+  double get temperatureThresholdLow => _settings.temperatureThresholdLow;
+  double get humidityThresholdHigh => _settings.humidityThresholdHigh;
+  double get humidityThresholdLow => _settings.humidityThresholdLow;
+  // --- 结束新增阈值 Getters ---
   // ---------------------------------
 
   // --- Navigation State (Keep as is) ---

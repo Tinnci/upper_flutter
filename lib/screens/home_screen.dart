@@ -426,7 +426,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     }
 
     // --- Build the list of control widgets ---
-    List<Widget> tcpControls = [
+    List<Widget> tcpControlItems = [
        buildAdaptiveTextField(
          controller: _ipController,
          label: 'TCP IP', // Add TCP label
@@ -446,6 +446,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
          minWidth: 60,
          maxWidth: 80,
        ),
+       _buildAdaptiveButton( // New TCP Scan button
+         label: '扫描TCP',
+         icon: Icons.search_outlined, // Using outlined search icon
+         onPressed: () => appState.scanTcpNetwork(),
+         isLoading: false, // Assuming scanTcpNetwork has its own loading state if needed in appState
+         enabled: !isBusy && !appState.isTcpConnected, // Disable if busy or connected
+         type: 'tonal',
+       ),
        _buildAdaptiveButton(
          label: appState.isTcpConnected ? '断开TCP' : '连接TCP',
          icon: appState.isTcpConnected ? Icons.link_off : Icons.link,
@@ -457,10 +465,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
        ),
     ];
 
-    List<Widget> bleControls = [];
+    List<Widget> bleControlItems = [];
     // Show BLE controls on mobile platforms and Windows
     if (Platform.isAndroid || Platform.isIOS || Platform.isWindows) {
-        bleControls = [
+        bleControlItems = [
             _buildAdaptiveButton(
               label: '扫描BLE',
               icon: Icons.bluetooth_searching,
@@ -470,22 +478,25 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               enabled: !isBusy && !appState.isBleConnected,
               type: 'tonal',
             ),
-             // Show selected device if any
+             // Show selected device Chip directly before the connect button
              if (appState.selectedDevice != null)
-               Chip(
-                 label: Text(
-                   (appState.selectedDevice!.name?.isNotEmpty ?? false)
-                       ? appState.selectedDevice!.name!
-                       : appState.selectedDevice!.deviceId,
-                   overflow: TextOverflow.ellipsis,
+               Padding( // Add some padding to the chip for better spacing
+                 padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                 child: Chip(
+                   label: Text(
+                     (appState.selectedDevice!.name?.isNotEmpty ?? false)
+                         ? appState.selectedDevice!.name!
+                         : appState.selectedDevice!.deviceId,
+                     overflow: TextOverflow.ellipsis,
+                   ),
+                   avatar: Icon(Icons.bluetooth, size: 16, color: Theme.of(context).colorScheme.primary),
+                   onDeleted: appState.isBleConnected ? null : () { // Allow clearing selection only if not connected
+                       appState.selectDevice(null); 
+                   },
+                   deleteIcon: appState.isBleConnected ? null : Icon(Icons.close, size: 14),
+                   visualDensity: VisualDensity.compact,
+                   materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                  ),
-                 avatar: Icon(Icons.bluetooth, size: 16, color: Theme.of(context).colorScheme.primary),
-                 onDeleted: appState.isBleConnected ? null : () { // Allow clearing selection only if not connected
-                     appState.selectDevice(null); // Assuming null clears selection
-                 },
-                 deleteIcon: appState.isBleConnected ? null : Icon(Icons.close, size: 14),
-                 visualDensity: VisualDensity.compact,
-                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                ),
             _buildAdaptiveButton(
               label: appState.isBleConnected ? '断开BLE' : '连接BLE',
@@ -500,24 +511,92 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         ];
     }
 
-    return Card(
+    // --- Create individual cards for TCP and BLE controls ---
+    Widget tcpCard = Card(
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Center(
+        padding: const EdgeInsets.all(12.0), // Slightly less padding inside individual cards
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding( // Add some padding to the title for better spacing
+              padding: const EdgeInsets.only(bottom: 4.0),
+              child: Text("TCP/IP 连接", style: Theme.of(context).textTheme.titleSmall),
+            ),
+            Divider(
+              height: 16, // Adjusted height for vertical spacing
+              thickness: 0.8, // Subtle thickness
+              color: Theme.of(context).colorScheme.outlineVariant, // M3 color
+            ),
+            Padding( // Add padding around the Wrap content
+              padding: const EdgeInsets.only(top: 8.0),
+              child: Wrap(
+                spacing: 8.0,
+                runSpacing: 8.0,
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: tcpControlItems,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    Widget? bleCard;
+    if (Platform.isAndroid || Platform.isIOS || Platform.isWindows) {
+        bleCard = Card(
+          elevation: 1,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+          child: Padding(
+            padding: const EdgeInsets.all(12.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                 Padding( // Add some padding to the title
+                   padding: const EdgeInsets.only(bottom: 4.0),
+                   child: Text("蓝牙 (BLE) 连接", style: Theme.of(context).textTheme.titleSmall),
+                 ),
+                 Divider(
+                   height: 16, // Adjusted height
+                   thickness: 0.8, // Subtle thickness
+                   color: Theme.of(context).colorScheme.outlineVariant, // M3 color
+                 ),
+                 Padding( // Add padding around the Wrap content
+                  padding: const EdgeInsets.only(top: 8.0),
+                   child: Wrap(
+                     spacing: 8.0,
+                     runSpacing: 8.0,
+                     alignment: WrapAlignment.center,
+                     crossAxisAlignment: WrapCrossAlignment.center,
+                     children: bleControlItems,
+                   ),
+                 ),
+              ],
+            ),
+          ),
+        );
+    }
+    
+    // Use a main Card to wrap both sections or just one if BLE is not available
+    return Card(
+      elevation: 0, // Outer card can be flat if inner cards have elevation
+      color: Colors.transparent, // Make outer card transparent
+      // shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      child: Padding(
+        padding: const EdgeInsets.all(4.0), // Minimal padding for the outer container
+        child: Center( // Keep Center for overall alignment
           child: Wrap(
-            spacing: 12.0, // Spacing between elements in a row
-            runSpacing: 12.0, // Spacing between rows
-            alignment: WrapAlignment.spaceEvenly, // Distribute space
-            crossAxisAlignment: WrapCrossAlignment.center,
-            // Combine controls. Show TCP first, then BLE if available.
+            spacing: 16.0, // Spacing between TCP and BLE cards
+            runSpacing: 16.0, 
+            alignment: WrapAlignment.spaceEvenly, 
+            crossAxisAlignment: WrapCrossAlignment.start, // Align cards to the top
             children: [
-                ...tcpControls,
-                 // Add a visual separator on mobile or Windows if both are shown
-                 if (Platform.isAndroid || Platform.isIOS || Platform.isWindows)
-                    VerticalDivider(width: 20, thickness: 1),
-                ...bleControls,
+                // 移除 Flexible，让 Wrap 直接管理 Card
+                tcpCard,
+                if (bleCard != null)
+                  bleCard,
             ],
           ),
         ),
@@ -551,6 +630,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final colorScheme = Theme.of(context).colorScheme;
     final textTheme = Theme.of(context).textTheme;
     final isSmallScreen = MediaQuery.of(context).size.width < 600;
+    final settings = appState.settings; // 获取设置
 
     // Helper to build a data row with Icon and Label
     Widget buildDataRow(IconData icon, String label, String value, {Color? valueColor, bool highlight = false}) {
@@ -597,26 +677,39 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                    Icons.volume_up_outlined,
                    '噪声 (dB):',
                    data?.noiseDb.toStringAsFixed(1) ?? '--',
-                   valueColor: data != null && data.noiseDb > 75 ? colorScheme.error : null,
-                   highlight: data != null && data.noiseDb > 60,
+                   // 使用 settings 中的阈值
+                   valueColor: data != null && data.noiseDb > settings.noiseThresholdHigh 
+                                 ? colorScheme.error 
+                                 : null,
+                   highlight: data != null && data.noiseDb > (settings.noiseThresholdHigh - 15), // 例如，比高阈值低15dB时开始高亮
                  ),
                  buildDataRow(
                     Icons.thermostat_outlined,
                    '温度 (°C):',
                    data?.temperature.toStringAsFixed(1) ?? '--',
-                   valueColor: data != null && data.temperature > 35 ? colorScheme.error : (data != null && data.temperature < 10 ? Colors.blue.shade300 : null),
-                   highlight: data != null && (data.temperature > 30 || data.temperature < 15),
+                   // 使用 settings 中的阈值
+                   valueColor: data != null && data.temperature > settings.temperatureThresholdHigh
+                                 ? colorScheme.error 
+                                 : (data != null && data.temperature < settings.temperatureThresholdLow 
+                                    ? Colors.blue.shade300 
+                                    : null),
+                   highlight: data != null && (data.temperature > (settings.temperatureThresholdHigh - 5) || data.temperature < (settings.temperatureThresholdLow + 5)), // 例如，接近阈值时开始高亮
                  ),
                  buildDataRow(
                    Icons.water_drop_outlined,
                    '湿度 (%):',
                    data?.humidity.toStringAsFixed(1) ?? '--',
-                   highlight: data != null && (data.humidity > 70 || data.humidity < 30),
+                   // 使用 settings 中的阈值
+                   valueColor: data != null && (data.humidity > settings.humidityThresholdHigh || data.humidity < settings.humidityThresholdLow)
+                                 ? (data.humidity > settings.humidityThresholdHigh ? colorScheme.error : Colors.blue.shade300) // 可以为过高和过低设置不同颜色
+                                 : null,
+                   highlight: data != null && (data.humidity > (settings.humidityThresholdHigh - 10) || data.humidity < (settings.humidityThresholdLow + 10)), // 例如，接近阈值时高亮
                  ),
                  buildDataRow(
                    Icons.lightbulb_outlined,
                    '光照 (lux):',
                    data?.lightIntensity.toStringAsFixed(1) ?? '--',
+                   // 光照通常没有特定"危险"阈值，可以根据需要添加
                  ),
                  const SizedBox(height: 8),
                  Row(
