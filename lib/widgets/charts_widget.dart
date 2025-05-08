@@ -14,6 +14,7 @@ class SingleChartCard extends StatelessWidget {
   final bool isLoading; // 新增：加载状态
   final String sensorIdentifier; // 新增：传感器标识 (例如 "Noise", "Temperature")
   final Function(String sensorIdentifier)? onHistoryTap; // 新增：查看历史回调
+  final String Function(double value, DateTime timestamp)? xAxisLabelFormatter; // <--- 新增字段
 
   const SingleChartCard({
     super.key,
@@ -25,6 +26,7 @@ class SingleChartCard extends StatelessWidget {
     this.isLoading = false, // 默认非加载状态
     required this.sensorIdentifier,
     this.onHistoryTap,
+    this.xAxisLabelFormatter, // <--- 新增构造函数参数
   });
 
   @override
@@ -134,9 +136,21 @@ class SingleChartCard extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Expanded(
-              child: isLoading // 根据 isLoading 状态显示图表或加载指示器
+              child: isLoading 
                   ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: color))
-                  : LineChart(
+                  : filteredSpots.isEmpty // Check if filteredSpots is empty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.show_chart_outlined, size: 32, color: Theme.of(context).colorScheme.outline),
+                              const SizedBox(height: 8),
+                              Text('无数据显示', style: TextStyle(color: Theme.of(context).colorScheme.outline, fontSize: 12)),
+                              Text('(当前时间范围)', style: TextStyle(color: Theme.of(context).colorScheme.outlineVariant, fontSize: 10)),
+                            ],
+                          ),
+                        )
+                      : LineChart(
                 LineChartData(
                   minX: minX,
                   maxX: maxX,
@@ -170,15 +184,21 @@ class SingleChartCard extends StatelessWidget {
                           if (value >= minX && value <= maxX) {
                              try {
                                final timestamp = DateTime.fromMillisecondsSinceEpoch(value.toInt());
-                               // --- 关键修改：只显示秒 ---
-                               final String secondText = '${DateFormat('ss').format(timestamp)}s'; 
+                               // --- 关键修改：使用 xAxisLabelFormatter 或默认格式 ---
+                               String labelText;
+                               if (xAxisLabelFormatter != null) {
+                                 labelText = xAxisLabelFormatter!(value, timestamp);
+                               } else {
+                                 // 默认格式: 只显示秒
+                                 labelText = '${DateFormat('ss').format(timestamp)}s'; 
+                               }
                                return SideTitleWidget(
                                  axisSide: meta.axisSide,
                                  space: 4,
-                                 // 使用新的格式
-                                 child: Text(secondText, style: const TextStyle(fontSize: 10)), 
+                                 child: Text(labelText, style: const TextStyle(fontSize: 10)), 
                                );
                              } catch (e) {
+                                debugPrint("Error formatting X-axis title: $e for value $value");
                                return const SizedBox.shrink(); 
                              }
                           }

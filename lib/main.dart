@@ -54,8 +54,10 @@ class MyApp extends StatelessWidget {
             const SingleActivator(LogicalKeyboardKey.digit1, control: true):
                 NavigateHomeIntent(),
             const SingleActivator(LogicalKeyboardKey.digit2, control: true):
-                NavigateDatabaseIntent(),
+                NavigateHistoryChartIntent(),
             const SingleActivator(LogicalKeyboardKey.digit3, control: true):
+                NavigateDatabaseIntent(),
+            const SingleActivator(LogicalKeyboardKey.digit4, control: true):
                 NavigateSettingsIntent(),
 
             // 功能快捷键
@@ -83,15 +85,21 @@ class MyApp extends StatelessWidget {
                   return null;
                 },
               ),
-              NavigateDatabaseIntent: CallbackAction<NavigateDatabaseIntent>(
+              NavigateHistoryChartIntent: CallbackAction<NavigateHistoryChartIntent>(
                 onInvoke: (intent) {
                   appState.navigateTo(1);
                   return null;
                 },
               ),
-              NavigateSettingsIntent: CallbackAction<NavigateSettingsIntent>(
+              NavigateDatabaseIntent: CallbackAction<NavigateDatabaseIntent>(
                 onInvoke: (intent) {
                   appState.navigateTo(2);
+                  return null;
+                },
+              ),
+              NavigateSettingsIntent: CallbackAction<NavigateSettingsIntent>(
+                onInvoke: (intent) {
+                  appState.navigateTo(3);
                   return null;
                 },
               ),

@@ -9,6 +9,7 @@ import '../widgets/charts_widget.dart'; // 导入 SingleChartCard
 import 'package:fl_chart/fl_chart.dart'; // 需要 FlSpot
 import '../models/sensor_data.dart'; // 需要 SensorData
 import 'package:flutter/scheduler.dart'; // 导入 TickerProviderStateMixin
+import 'history_visualization_screen.dart'; // <--- 添加此导入
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -66,6 +67,30 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     const double compactWidth = 600; // Material 3 breakpoint for compact
     final bool centerTitle = screenWidth >= compactWidth;
 
+    // --- 动态 AppBar 标题 ---
+    String appBarTitle;
+    final navIndex = appState.currentNavigationIndex;
+
+    switch (navIndex) {
+      case 0:
+        appBarTitle = "环境监测上位机";
+        break;
+      case 1:
+        appBarTitle = appState.selectedSensorForHistory != null
+            ? '${appState.selectedSensorForHistory!} 历史记录'
+            : '历史数据可视化';
+        break;
+      case 2:
+        appBarTitle = "数据库管理";
+        break;
+      case 3:
+        appBarTitle = "设置";
+        break;
+      default:
+        appBarTitle = "环境监测上位机"; // Fallback
+    }
+    // --- 结束动态 AppBar 标题 ---
+
     // --- Create more detailed status indicator ---
     Widget buildStatusChip(String label, bool connected, bool connecting) {
         IconData icon;
@@ -113,7 +138,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (Platform.isIOS) {
       // iOS风格的导航栏
       return CupertinoNavigationBar(
-        middle: const Text('环境监测上位机'),
+        middle: Text(appBarTitle), // 使用动态标题
         trailing: Padding( // Add padding for iOS trailing widget
            padding: const EdgeInsets.only(right: 8.0),
            child: statusIndicator,
@@ -122,7 +147,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     } else {
       // Material 3 风格的AppBar
       return AppBar(
-        title: const Text('环境监测上位机'),
+        title: Text(appBarTitle), // 使用动态标题
         centerTitle: centerTitle,
         actions: [
           Padding(
@@ -223,6 +248,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             label: '主页',
           ),
           const NavigationDestination(
+            icon: Icon(Icons.auto_graph_outlined),
+            selectedIcon: Icon(Icons.auto_graph),
+            label: '历史图表',
+          ),
+          const NavigationDestination(
             icon: Icon(Icons.storage_outlined),
             selectedIcon: Icon(Icons.storage),
             label: '数据库',
@@ -238,9 +268,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         // Always build the content based on AppState's index
         switch (appState.currentNavigationIndex) { 
           case 1:
-            currentContent = const DbManagementScreen();
+            currentContent = HistoryVisualizationScreen(
+              sensorIdentifier: appState.selectedSensorForHistory, // 传递选择的传感器
+            );
             break;
           case 2:
+            currentContent = const DbManagementScreen();
+            break;
+          case 3:
             currentContent = const SettingsScreen();
             break;
           case 0: // Home screen content
@@ -809,10 +844,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         sensorIdentifier: '噪声',
         isLoading: false,
         onHistoryTap: (sensorId) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
-          );
+          appState.navigateTo(1, sensorIdentifier: sensorId); // 更新 AppState
         },
       ),
       SingleChartCard(
@@ -824,10 +856,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         sensorIdentifier: '温度',
         isLoading: false,
         onHistoryTap: (sensorId) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
-          );
+          appState.navigateTo(1, sensorIdentifier: sensorId); // 更新 AppState
         },
       ),
       SingleChartCard(
@@ -839,10 +868,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         sensorIdentifier: '湿度',
         isLoading: false,
         onHistoryTap: (sensorId) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
-          );
+          appState.navigateTo(1, sensorIdentifier: sensorId); // 更新 AppState
         },
       ),
       SingleChartCard(
@@ -854,10 +880,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         sensorIdentifier: '光照',
         isLoading: false,
         onHistoryTap: (sensorId) {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (_) => DbManagementScreen(initialSensorFocus: sensorId)),
-          );
+          appState.navigateTo(1, sensorIdentifier: sensorId); // 更新 AppState
         },
       ),
     ];

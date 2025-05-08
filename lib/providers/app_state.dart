@@ -48,9 +48,21 @@ class AppState extends ChangeNotifier {
   // --- Navigation State (Keep as is) ---
   int _currentNavigationIndex = 0;
   int get currentNavigationIndex => _currentNavigationIndex;
-  void navigateTo(int index) {
-    if (index >= 0 && index <= 2) {
+  String? selectedSensorForHistory;
+
+  void navigateTo(int index, {String? sensorIdentifier}) {
+    if (index >= 0 && index <= 3) {
       _currentNavigationIndex = index;
+      if (index == 1) {
+        selectedSensorForHistory = sensorIdentifier;
+      } else {
+        if (sensorIdentifier == null && index == 1) {
+           // 如果是导航到历史页但没有指定 sensor, 保留当前的 selectedSensorForHistory
+           // 这允许用户在历史页内切换传感器后，这个选择仍然有效
+        } else if (index != 1) {
+          selectedSensorForHistory = null;
+        }
+      }
       notifyListeners();
     }
   }
@@ -794,8 +806,8 @@ class AppState extends ChangeNotifier {
   Future<List<SensorData>> getAllDbReadings({int? limit}) async {
       return await _dbHelper.getAllReadings(limit: limit);
   }
-  Future<List<SensorData>> searchDbReadings({String? startDate, String? endDate}) async {
-      return await _dbHelper.searchReadings(startDate: startDate, endDate: endDate);
+  Future<List<SensorData>> searchDbReadings({String? startDate, String? endDate, int? limit}) async {
+      return await _dbHelper.searchReadings(startDate: startDate, endDate: endDate, limit: limit);
   }
   Future<void> clearAllDbData() async {
       await _dbHelper.clearAllData();

@@ -35,6 +35,11 @@ class NavigateSettingsIntent extends Intent {
   const NavigateSettingsIntent();
 }
 
+/// 导航到历史图表页面意图
+class NavigateHistoryChartIntent extends Intent {
+  const NavigateHistoryChartIntent();
+}
+
 /// 删除数据意图
 class DeleteDataIntent extends Intent {
   const DeleteDataIntent();

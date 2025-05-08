@@ -115,7 +115,7 @@ class DatabaseHelper {
   }
 
   // 按日期范围搜索数据
-  Future<List<SensorData>> searchReadings({String? startDate, String? endDate, int limit = 1000}) async {
+  Future<List<SensorData>> searchReadings({String? startDate, String? endDate, int? limit}) async {
     final db = await instance.database;
     String? whereClause;
     List<dynamic>? whereArgs;
@@ -135,7 +135,7 @@ class DatabaseHelper {
       table,
       where: whereClause,
       whereArgs: whereArgs,
-      orderBy: '$columnId DESC',
+      orderBy: '$columnTimestamp ASC',
       limit: limit,
     );
 
