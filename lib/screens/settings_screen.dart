@@ -261,263 +261,252 @@ class SettingsScreen extends StatelessWidget {
            },
            child: Focus(
               autofocus: true,
-              child: Scaffold(
-                appBar: AppBar(
-                  title: const Text('设置'),
-                  actions: [
-                    IconButton(
-                      icon: const Icon(Icons.refresh),
-                      tooltip: '重置为默认设置 (Ctrl+Esc)', // Add shortcut hint
-                      // Call the dialog helper
-                      onPressed: () => _showResetDialog(context, appState), 
-                    ),
-                  ],
-                ),
-                body: ListView(
-                  children: [
-                    // 外观设置
-                    _buildSectionTitle(context, '外观'), // Pass context
-                    _buildAdaptiveDropdown<ThemeMode>(
-                      title: '主题模式',
-                      subtitle: '选择应用的主题模式',
-                      value: settings.themeMode,
-                      items: {
-                        ThemeMode.system: '跟随系统',
-                        ThemeMode.light: '浅色模式',
-                        ThemeMode.dark: '深色模式',
-                      },
-                      onChanged: (newValue) {
-                        if (newValue != null) {
-                          appState.updateSetting('themeMode', newValue.index);
-                        }
-                      },
-                    ),
-                    _buildAdaptiveSwitch(
-                      context: context, // Pass context
-                      title: '动态颜色',
-                      subtitle: '使用 Material You 动态颜色系统 (如果支持)',
-                      value: settings.useDynamicColor,
-                      onChanged: (newValue) {
-                        appState.updateSetting('useDynamicColor', newValue);
-                      },
-                    ),
-                    _buildDivider(),
+              // REMOVED Scaffold and AppBar here
+              // The AppBar title "设置" and its reset action will be handled by HomeScreen's AppBar
+              child: ListView(
+                children: [
+                  // 外观设置
+                  _buildSectionTitle(context, '外观'), // Pass context
+                  _buildAdaptiveDropdown<ThemeMode>(
+                    title: '主题模式',
+                    subtitle: '选择应用的主题模式',
+                    value: settings.themeMode,
+                    items: {
+                      ThemeMode.system: '跟随系统',
+                      ThemeMode.light: '浅色模式',
+                      ThemeMode.dark: '深色模式',
+                    },
+                    onChanged: (newValue) {
+                      if (newValue != null) {
+                        appState.updateSetting('themeMode', newValue.index);
+                      }
+                    },
+                  ),
+                  _buildAdaptiveSwitch(
+                    context: context, // Pass context
+                    title: '动态颜色',
+                    subtitle: '使用 Material You 动态颜色系统 (如果支持)',
+                    value: settings.useDynamicColor,
+                    onChanged: (newValue) {
+                      appState.updateSetting('useDynamicColor', newValue);
+                    },
+                  ),
+                  _buildDivider(),
 
-                    // 连接设置
-                    _buildSectionTitle(context, '连接'), // Pass context
-                    // _buildAdaptiveSwitch( // Auto-connect might need more logic on startup
-                    //   context: context,
-                    //   title: '自动连接',
-                    //   subtitle: '启动时自动连接到上次的设备 (待实现)',
-                    //   value: settings.autoConnect,
-                    //   onChanged: (newValue) {
-                    //     appState.updateSetting('autoConnect', newValue);
-                    //   },
-                    // ),
-                    ListTile(
-                      title: const Text('默认 IP 地址'),
-                      subtitle: Text(settings.defaultIpAddress),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () {
-                        final controller = TextEditingController(text: settings.defaultIpAddress);
-                        showDialog(
-                          context: context,
-                          builder: (dialogContext) => AlertDialog(
-                            title: const Text('设置默认 IP 地址'),
-                            content: TextField(
-                              controller: controller,
-                              decoration: const InputDecoration(
-                                labelText: 'IP 地址',
-                                hintText: '例如: 192.168.1.100',
-                              ),
+                  // 连接设置
+                  _buildSectionTitle(context, '连接'), // Pass context
+                  // _buildAdaptiveSwitch( // Auto-connect might need more logic on startup
+                  //   context: context,
+                  //   title: '自动连接',
+                  //   subtitle: '启动时自动连接到上次的设备 (待实现)',
+                  //   value: settings.autoConnect,
+                  //   onChanged: (newValue) {
+                  //     appState.updateSetting('autoConnect', newValue);
+                  //   },
+                  // ),
+                  ListTile(
+                    title: const Text('默认 IP 地址'),
+                    subtitle: Text(settings.defaultIpAddress),
+                    trailing: const Icon(Icons.edit),
+                    onTap: () {
+                      final controller = TextEditingController(text: settings.defaultIpAddress);
+                      showDialog(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('设置默认 IP 地址'),
+                          content: TextField(
+                            controller: controller,
+                            decoration: const InputDecoration(
+                              labelText: 'IP 地址',
+                              hintText: '例如: 192.168.1.100',
                             ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(dialogContext),
-                                child: const Text('取消'),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  appState.updateSetting('defaultIpAddress', controller.text);
-                                  Navigator.pop(dialogContext);
-                                },
-                                child: const Text('保存'),
-                              ),
-                            ],
                           ),
-                        );
-                      },
-                    ),
-                    ListTile(
-                      title: const Text('默认端口'),
-                      subtitle: Text(settings.defaultPort),
-                      trailing: const Icon(Icons.edit),
-                      onTap: () {
-                        final controller = TextEditingController(text: settings.defaultPort);
-                        showDialog(
-                          context: context,
-                          builder: (dialogContext) => AlertDialog(
-                            title: const Text('设置默认端口'),
-                            content: TextField(
-                              controller: controller,
-                              decoration: const InputDecoration(
-                                labelText: '端口',
-                                hintText: '例如: 8266',
-                              ),
-                              keyboardType: TextInputType.number,
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              child: const Text('取消'),
                             ),
-                            actions: [
-                              TextButton(
-                                onPressed: () => Navigator.pop(dialogContext),
-                                child: const Text('取消'),
-                              ),
-                              TextButton(
-                                onPressed: () {
-                                  appState.updateSetting('defaultPort', controller.text);
-                                  Navigator.pop(dialogContext);
-                                },
-                                child: const Text('保存'),
-                              ),
-                            ],
+                            TextButton(
+                              onPressed: () {
+                                appState.updateSetting('defaultIpAddress', controller.text);
+                                Navigator.pop(dialogContext);
+                              },
+                              child: const Text('保存'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  ListTile(
+                    title: const Text('默认端口'),
+                    subtitle: Text(settings.defaultPort),
+                    trailing: const Icon(Icons.edit),
+                    onTap: () {
+                      final controller = TextEditingController(text: settings.defaultPort);
+                      showDialog(
+                        context: context,
+                        builder: (dialogContext) => AlertDialog(
+                          title: const Text('设置默认端口'),
+                          content: TextField(
+                            controller: controller,
+                            decoration: const InputDecoration(
+                              labelText: '端口',
+                              hintText: '例如: 8266',
+                            ),
+                            keyboardType: TextInputType.number,
                           ),
-                        );
-                      },
-                    ),
-                    _buildAdaptiveSwitch(
-                      context: context,
-                      title: '显示未命名蓝牙设备',
-                      subtitle: '扫描时显示没有名称的蓝牙设备',
-                      value: settings.showUnnamedBleDevices,
-                      onChanged: (newValue) {
-                        appState.updateSetting('showUnnamedBleDevices', newValue);
-                      },
-                    ),
-                    _buildDivider(),
+                          actions: [
+                            TextButton(
+                              onPressed: () => Navigator.pop(dialogContext),
+                              child: const Text('取消'),
+                            ),
+                            TextButton(
+                              onPressed: () {
+                                appState.updateSetting('defaultPort', controller.text);
+                                Navigator.pop(dialogContext);
+                              },
+                              child: const Text('保存'),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                  _buildAdaptiveSwitch(
+                    context: context,
+                    title: '显示未命名蓝牙设备',
+                    subtitle: '扫描时显示没有名称的蓝牙设备',
+                    value: settings.showUnnamedBleDevices,
+                    onChanged: (newValue) {
+                      appState.updateSetting('showUnnamedBleDevices', newValue);
+                    },
+                  ),
+                  _buildDivider(),
 
-                    // 数据设置
-                    _buildSectionTitle(context, '数据'), // Pass context
+                  // 数据设置
+                  _buildSectionTitle(context, '数据'), // Pass context
+                  _buildNumberSelector(
+                    title: '数据刷新间隔 (秒)',
+                    subtitle: '每隔多少秒获取一次数据',
+                    value: settings.dataRefreshInterval,
+                    options: [1, 2, 3, 5, 10, 15, 30, 60],
+                    onChanged: (newValue) {
+                      appState.updateSetting('dataRefreshInterval', newValue);
+                    },
+                  ),
+                  _buildNumberSelector(
+                    title: '图表数据点数量',
+                    subtitle: '图表上显示的数据点数量',
+                    value: settings.chartDataPoints,
+                    options: [10, 20, 30, 60, 100, 200, 500], // Added more options
+                    onChanged: (newValue) {
+                      appState.updateSetting('chartDataPoints', newValue);
+                    },
+                  ),
+                  _buildDivider(),
+
+                  // --- 新增：实时数据显示阈值设置 ---
+                  _buildSectionTitle(context, '数据显示阈值'),
+                  _buildDoubleValueEditor(
+                    context: context,
+                    title: '噪声高阈值',
+                    subtitle: '超过此值时高亮 (dB)',
+                    value: settings.noiseThresholdHigh,
+                    settingKey: 'noiseThresholdHigh',
+                    appState: appState,
+                    unit: " dB",
+                  ),
+                  _buildDoubleValueEditor(
+                    context: context,
+                    title: '温度高阈值',
+                    subtitle: '超过此值时高亮 (°C)',
+                    value: settings.temperatureThresholdHigh,
+                    settingKey: 'temperatureThresholdHigh',
+                    appState: appState,
+                    unit: " °C",
+                  ),
+                  _buildDoubleValueEditor(
+                    context: context,
+                    title: '温度低阈值',
+                    subtitle: '低于此值时高亮 (°C)',
+                    value: settings.temperatureThresholdLow,
+                    settingKey: 'temperatureThresholdLow',
+                    appState: appState,
+                    unit: " °C",
+                  ),
+                  _buildDoubleValueEditor(
+                    context: context,
+                    title: '湿度高阈值',
+                    subtitle: '超过此值时高亮 (%)',
+                    value: settings.humidityThresholdHigh,
+                    settingKey: 'humidityThresholdHigh',
+                    appState: appState,
+                    unit: " %",
+                  ),
+                  _buildDoubleValueEditor(
+                    context: context,
+                    title: '湿度低阈值',
+                    subtitle: '低于此值时高亮 (%)',
+                    value: settings.humidityThresholdLow,
+                    settingKey: 'humidityThresholdLow',
+                    appState: appState,
+                    unit: " %",
+                  ),
+                  _buildDivider(),
+                  // --- 结束阈值设置 ---
+
+                  // 传感器显示设置 (可以考虑移除，如果图表总是显示所有数据)
+                  // _buildSectionTitle(context, '传感器显示 (图表)'),
+                  // _buildAdaptiveSwitch(
+                  //   context: context,
+                  //   title: '噪音数据',
+                  //   subtitle: '在图表中显示噪音数据',
+                  //   value: settings.showNoiseData,
+                  //   onChanged: (newValue) {
+                  //     appState.updateSetting('showNoiseData', newValue);
+                  //   },
+                  // ),
+                  // ... other sensor switches ...
+
+                  // --- 新增：危险区域 ---
+                  _buildSectionTitle(context, '危险区域'),
+                  ListTile(
+                    leading: const Icon(Icons.delete_forever, color: Colors.red),
+                    title: const Text('删除数据库文件', style: TextStyle(color: Colors.red)),
+                    subtitle: const Text('彻底清除本地所有历史数据。此操作不可逆！'),
+                    onTap: () {
+                      _showDeleteDatabaseDialog(context, appState);
+                    },
+                  ),
+                  // --- 结束危险区域 ---
+
+                  // --- Add BLE Polling Settings ---
+                  _buildAdaptiveSwitch(
+                    context: context,
+                    title: '使用 BLE 轮询模式',
+                    subtitle: '开启后将主动读取数据而非依赖通知 (可能更耗电)',
+                    value: settings.useBlePolling,
+                    onChanged: (newValue) {
+                      appState.updateSetting('useBlePolling', newValue);
+                    },
+                  ),
+                  // Conditionally show interval setting only if polling is enabled
+                  if (settings.useBlePolling)
                     _buildNumberSelector(
-                      title: '数据刷新间隔 (秒)',
-                      subtitle: '每隔多少秒获取一次数据',
-                      value: settings.dataRefreshInterval,
-                      options: [1, 2, 3, 5, 10, 15, 30, 60],
+                      title: 'BLE 轮询间隔 (毫秒)',
+                      subtitle: '主动读取数据的频率 (越低越快，但越耗电)',
+                      value: settings.blePollingIntervalMs,
+                      // Example options, adjust as needed
+                      options: [200, 300, 500, 750, 1000, 1500, 2000], 
                       onChanged: (newValue) {
-                        appState.updateSetting('dataRefreshInterval', newValue);
+                         appState.updateSetting('blePollingIntervalMs', newValue);
                       },
                     ),
-                    _buildNumberSelector(
-                      title: '图表数据点数量',
-                      subtitle: '图表上显示的数据点数量',
-                      value: settings.chartDataPoints,
-                      options: [10, 20, 30, 60, 100, 200, 500], // Added more options
-                      onChanged: (newValue) {
-                        appState.updateSetting('chartDataPoints', newValue);
-                      },
-                    ),
-                    _buildDivider(),
+                  // --- End BLE Polling Settings ---
 
-                    // --- 新增：实时数据显示阈值设置 ---
-                    _buildSectionTitle(context, '数据显示阈值'),
-                    _buildDoubleValueEditor(
-                      context: context,
-                      title: '噪声高阈值',
-                      subtitle: '超过此值时高亮 (dB)',
-                      value: settings.noiseThresholdHigh,
-                      settingKey: 'noiseThresholdHigh',
-                      appState: appState,
-                      unit: " dB",
-                    ),
-                    _buildDoubleValueEditor(
-                      context: context,
-                      title: '温度高阈值',
-                      subtitle: '超过此值时高亮 (°C)',
-                      value: settings.temperatureThresholdHigh,
-                      settingKey: 'temperatureThresholdHigh',
-                      appState: appState,
-                      unit: " °C",
-                    ),
-                    _buildDoubleValueEditor(
-                      context: context,
-                      title: '温度低阈值',
-                      subtitle: '低于此值时高亮 (°C)',
-                      value: settings.temperatureThresholdLow,
-                      settingKey: 'temperatureThresholdLow',
-                      appState: appState,
-                      unit: " °C",
-                    ),
-                    _buildDoubleValueEditor(
-                      context: context,
-                      title: '湿度高阈值',
-                      subtitle: '超过此值时高亮 (%)',
-                      value: settings.humidityThresholdHigh,
-                      settingKey: 'humidityThresholdHigh',
-                      appState: appState,
-                      unit: " %",
-                    ),
-                    _buildDoubleValueEditor(
-                      context: context,
-                      title: '湿度低阈值',
-                      subtitle: '低于此值时高亮 (%)',
-                      value: settings.humidityThresholdLow,
-                      settingKey: 'humidityThresholdLow',
-                      appState: appState,
-                      unit: " %",
-                    ),
-                    _buildDivider(),
-                    // --- 结束阈值设置 ---
-
-                    // 传感器显示设置 (可以考虑移除，如果图表总是显示所有数据)
-                    // _buildSectionTitle(context, '传感器显示 (图表)'),
-                    // _buildAdaptiveSwitch(
-                    //   context: context,
-                    //   title: '噪音数据',
-                    //   subtitle: '在图表中显示噪音数据',
-                    //   value: settings.showNoiseData,
-                    //   onChanged: (newValue) {
-                    //     appState.updateSetting('showNoiseData', newValue);
-                    //   },
-                    // ),
-                    // ... other sensor switches ...
-
-                    // --- 新增：危险区域 ---
-                    _buildSectionTitle(context, '危险区域'),
-                    ListTile(
-                      leading: const Icon(Icons.delete_forever, color: Colors.red),
-                      title: const Text('删除数据库文件', style: TextStyle(color: Colors.red)),
-                      subtitle: const Text('彻底清除本地所有历史数据。此操作不可逆！'),
-                      onTap: () {
-                        _showDeleteDatabaseDialog(context, appState);
-                      },
-                    ),
-                    // --- 结束危险区域 ---
-
-                    // --- Add BLE Polling Settings ---
-                    _buildAdaptiveSwitch(
-                      context: context,
-                      title: '使用 BLE 轮询模式',
-                      subtitle: '开启后将主动读取数据而非依赖通知 (可能更耗电)',
-                      value: settings.useBlePolling,
-                      onChanged: (newValue) {
-                        appState.updateSetting('useBlePolling', newValue);
-                      },
-                    ),
-                    // Conditionally show interval setting only if polling is enabled
-                    if (settings.useBlePolling)
-                      _buildNumberSelector(
-                        title: 'BLE 轮询间隔 (毫秒)',
-                        subtitle: '主动读取数据的频率 (越低越快，但越耗电)',
-                        value: settings.blePollingIntervalMs,
-                        // Example options, adjust as needed
-                        options: [200, 300, 500, 750, 1000, 1500, 2000], 
-                        onChanged: (newValue) {
-                           appState.updateSetting('blePollingIntervalMs', newValue);
-                        },
-                      ),
-                    // --- End BLE Polling Settings ---
-
-                    const SizedBox(height: 24),
-                  ],
-                ),
+                  const SizedBox(height: 24),
+                ],
               ),
            ),
         );

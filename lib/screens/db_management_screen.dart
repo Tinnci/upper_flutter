@@ -269,10 +269,11 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
     // Determine if the screen is narrow
     final isSmallScreen = MediaQuery.of(context).size.width < 600;
     
-    String appBarTitle = '数据库管理';
-    if (widget.initialSensorFocus != null && widget.initialSensorFocus!.isNotEmpty) {
-      appBarTitle += ' - ${widget.initialSensorFocus}';
-    }
+    // appBarTitle logic will be moved to HomeScreen's _buildAppBar
+    // String appBarTitle = '数据库管理';
+    // if (widget.initialSensorFocus != null && widget.initialSensorFocus!.isNotEmpty) {
+    //   appBarTitle += ' - ${widget.initialSensorFocus}';
+    // }
 
     // Wrap with Actions widget
     return Actions(
@@ -282,61 +283,46 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
       },
       child: Focus( // Ensure the Actions widget can receive focus
          autofocus: true, // Request focus when the screen is built
-         child: Scaffold(
-           appBar: AppBar(
-             title: Text(appBarTitle), // 使用动态标题
-             actions: [
-               IconButton(
-                 icon: const Icon(Icons.refresh),
-                 onPressed: _isLoading ? null : () => _loadData(),
-                 tooltip: '刷新',
-               ),
-               IconButton(
-                 icon: const Icon(Icons.download_outlined), // Outlined icon
-                 onPressed: _isLoading || _data.isEmpty ? null : _exportCsv,
-                 tooltip: '导出 CSV (Ctrl+E)',
-               ),
-             ],
-           ),
-           body: SingleChildScrollView(
-             child: Padding( // Add padding around the body content
-               padding: EdgeInsets.all(isSmallScreen ? 8.0 : 16.0),
-               child: Column(
-                 children: [
-                   _buildFilterSection(context),
-                   _buildManagementSection(context), // Add management buttons section
-                   const Divider(height: 24), // Add more space around divider
-                   _isLoading
-                       ? const Center(child: CircularProgressIndicator())
-                       : _data.isEmpty
-                           ? Center(
-                               child: Padding(
-                                 padding: const EdgeInsets.symmetric(vertical: 32.0), // Add some vertical padding
-                                 child: Column(
-                                   mainAxisAlignment: MainAxisAlignment.center,
-                                   children: [
-                                     Icon(
-                                       Icons.find_in_page_outlined, // Use a relevant icon
-                                       size: 64,
-                                       color: Theme.of(context).colorScheme.outline,
-                                     ),
-                                     const SizedBox(height: 16),
-                                     Text(
-                                       '未找到数据记录', 
-                                       style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline)
-                                     ),
-                                     const SizedBox(height: 8),
-                                     Text(
-                                       '请尝试清除筛选条件或选择不同时间范围。', 
-                                       style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)
-                                     ),
-                                   ],
-                                 ),
+         // REMOVED Scaffold and AppBar here
+         // The AppBar title and its actions (refresh, export) will be handled by HomeScreen's AppBar
+         child: SingleChildScrollView(
+           child: Padding( // Add padding around the body content
+             padding: EdgeInsets.all(isSmallScreen ? 8.0 : 16.0),
+             child: Column(
+               children: [
+                 _buildFilterSection(context),
+                 _buildManagementSection(context), // Add management buttons section
+                 const Divider(height: 24), // Add more space around divider
+                 _isLoading
+                     ? const Center(child: CircularProgressIndicator())
+                     : _data.isEmpty
+                         ? Center(
+                             child: Padding(
+                               padding: const EdgeInsets.symmetric(vertical: 32.0), // Add some vertical padding
+                               child: Column(
+                                 mainAxisAlignment: MainAxisAlignment.center,
+                                 children: [
+                                   Icon(
+                                     Icons.find_in_page_outlined, // Use a relevant icon
+                                     size: 64,
+                                     color: Theme.of(context).colorScheme.outline,
+                                   ),
+                                   const SizedBox(height: 16),
+                                   Text(
+                                     '未找到数据记录', 
+                                     style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Theme.of(context).colorScheme.outline)
+                                   ),
+                                   const SizedBox(height: 8),
+                                   Text(
+                                     '请尝试清除筛选条件或选择不同时间范围。', 
+                                     style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline)
+                                   ),
+                                 ],
                                ),
-                             )
-                           : _buildDataTable(),
-                 ],
-               ),
+                             ),
+                           )
+                         : _buildDataTable(),
+               ],
              ),
            ),
          ),
