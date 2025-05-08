@@ -7,106 +7,110 @@ import 'dart:math' as math; // 新增导入
 // Represents a single chart card
 class SingleChartCard extends StatelessWidget {
   final String title;
-  final List<FlSpot> spots;
+  final List<List<FlSpot>> segmentedSpots;
   final Color color;
   final double minX;
   final double maxX;
-  final bool isLoading; // 新增：加载状态
-  final String sensorIdentifier; // 新增：传感器标识 (例如 "Noise", "Temperature")
-  final Function(String sensorIdentifier)? onHistoryTap; // 新增：查看历史回调
-  final String Function(double value, DateTime timestamp)? xAxisLabelFormatter; // <--- 新增字段
+  final bool isLoading;
+  final String sensorIdentifier;
+  final Function(String sensorIdentifier)? onHistoryTap;
+  final String Function(double value, DateTime timestamp)? xAxisLabelFormatter;
 
   const SingleChartCard({
     super.key,
     required this.title,
-    required this.spots,
+    required this.segmentedSpots,
     required this.color,
     required this.minX,
     required this.maxX,
-    this.isLoading = false, // 默认非加载状态
+    this.isLoading = false,
     required this.sensorIdentifier,
     this.onHistoryTap,
-    this.xAxisLabelFormatter, // <--- 新增构造函数参数
+    this.xAxisLabelFormatter,
   });
 
   @override
   Widget build(BuildContext context) {
-    // 直接调用构建单个卡片的方法
-    // 注意：现在 minX 和 maxX 是通过构造函数传入的
-    return _buildChartCard(context, title, spots, color, minX, maxX); // 传入 context
+    return _buildChartCard(context, title, segmentedSpots, color, minX, maxX);
   }
 
-  // 这个方法现在将在 HomeScreen 中使用，或者可以保留为静态方法
-  // static List<FlSpot> createSpots(List<SensorData> dataList, double Function(SensorData) getY) {
-  //   return dataList.map((data) {
-  //     final x = data.timestamp.millisecondsSinceEpoch.toDouble();
-  //     final y = getY(data);
-  //     return FlSpot(x, y);
-  //   }).toList();
-  // }
-  // 暂时注释掉，因为 HomeScreen 会处理数据准备
+  Widget _buildChartCard(BuildContext context, String title, List<List<FlSpot>> allSegments, Color color, double minX, double maxX) {
+    double minY = 0;
+    double maxY = 10;
+    
+    final allSpots = allSegments.expand((segment) => segment).toList();
 
-  // 构建单个图表的 Card
-  // 构建单个图表的 Card (保持不变，但现在是 build 方法调用的核心)
-  Widget _buildChartCard(BuildContext context, String title, List<FlSpot> spots, Color color, double minX, double maxX) { // 添加 context 参数
-     // 动态计算 Y 轴范围
-     double minY = 0; // Default min Y
-     double maxY = 10; // Default max Y
-     if (spots.isNotEmpty) {
-       minY = spots.map((s) => s.y).reduce((a, b) => a < b ? a : b);
-       maxY = spots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
-       // 添加边距
-       final padding = (maxY - minY) * 0.1;
-       // 如果 maxY 和 minY 很接近 (例如只有一个点)，padding 可能为0或很小
-       // 确保至少有一些 padding
-       final effectivePadding = padding < 1.0 ? 5.0 : padding; 
-       minY -= effectivePadding;
-       maxY += effectivePadding;
+    if (allSpots.isNotEmpty) {
+      minY = allSpots.map((s) => s.y).reduce((a, b) => a < b ? a : b);
+      maxY = allSpots.map((s) => s.y).reduce((a, b) => a > b ? a : b);
 
-       // 确保 minY 不会小于 0 (如果适用)
-       if (title.contains('dB') || title.contains('%') || title.contains('lux')) {
-          minY = minY < 0 ? 0 : minY;
-       }
-       // 再次检查，防止 minY >= maxY
-       if (minY >= maxY) {
-          maxY = minY + 10; // Ensure maxY is always greater than minY
-       }
-     }
+      if (minY == maxY) { // Handles cases with one point or all points having the same Y value
+        minY -= 5; // Add a default spread
+        maxY += 5;
+        // If Y is 0, this makes range -5 to 5. If Y is 50, it's 45 to 55. This is generally okay.
+      } else {
+        final paddingPercentage = 0.1; // 10% padding
+        var diff = maxY - minY;
+        // Ensure diff is not zero to prevent division by zero or tiny padding
+        if (diff == 0) diff = 10.0; // If min and max were somehow still equal, set a default diff
+        
+        var padding = diff * paddingPercentage;
+        // Ensure padding is at least a small absolute value for very small differences
+        padding = math.max(padding, 1.0); 
 
-     // --- X 轴范围和间隔计算 ---
-     // final verticalRange = maxX - minX; // verticalRange 现在是 xSpan
+        minY -= padding;
+        maxY += padding;
+      }
 
-     // 水平间隔 (Y 轴)
-     final horizontalRange = maxY - minY;
-     final safeHorizontalInterval = horizontalRange <= 0 ? 1.0 : horizontalRange / 5;
-     
-     // --- X轴动态间隔计算 ---
-     final double xSpan = (maxX - minX).abs(); // 获取X轴的实际跨度
-     
-     final double dynamicBottomTitleInterval;
-     final double dynamicVerticalGridInterval;
-     
-     const double minSensibleXInterval = 1000.0; // X轴上最小合理的间隔 (例如1秒)
+      // Ensure minY is not excessively low for non-negative data types like dB, %, lux
+      if (title.contains('dB') || title.contains('%') || title.contains('lux')) {
+         minY = math.max(0, minY); // Ensure minY doesn't go below 0 for these types
+      }
+      // Final check to ensure maxY is greater than minY, especially if minY was clamped to 0
+      if (minY >= maxY) {
+         maxY = minY + (allSpots.isNotEmpty && allSpots.first.y == 0 && minY == 0 ? 10 : 1.0); // Add a small default range if they became equal
+      }
+    } else { 
+        // Default Y range if there are no spots at all (noDataToShow will be true)
+        minY = 0;
+        maxY = 10;
+    }
 
-     if (xSpan <= 100.0) { // 如果X轴跨度非常小 (例如因为错误或只有一个点被强制很近)
-         dynamicBottomTitleInterval = 15000.0; // 使用原先的默认值
-         dynamicVerticalGridInterval = 10000.0;
-     } else if (xSpan < 5000.0) { // X轴跨度小于5秒
-         dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 2.0); // 尝试2-3个标签
-         dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 2.0); // 尝试2-3条网格线
-     } else if (xSpan < 20000.0) { // X轴跨度小于20秒
-         dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 3.0); // 尝试3-4个标签
-         dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 4.0); // 尝试4-5条网格线
-     } else { // X轴跨度较大 (例如20秒到60秒或更多)
-         dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 4.0); // 尝试4-5个标签
-         dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 6.0); // 尝试6-7条网格线
-     }
-     // --- 结束 X轴动态间隔计算 ---
+    // 水平间隔 (Y 轴)
+    final horizontalRange = maxY - minY;
+    final safeHorizontalInterval = horizontalRange <= 0 ? 1.0 : horizontalRange / 5;
+    
+    // --- X轴动态间隔计算 ---
+    final double xSpan = (maxX - minX).abs(); // 获取X轴的实际跨度
+    
+    final double dynamicBottomTitleInterval;
+    final double dynamicVerticalGridInterval;
+    
+    const double minSensibleXInterval = 1000.0; // X轴上最小合理的间隔 (例如1秒)
 
-     // --- 新增：过滤 spots ---
-     // 只保留 x 值 (时间戳) 在 minX 和 maxX 范围内的点
-     // 添加一点缓冲 (例如 1ms) 以确保边界点正确包含
-     final filteredSpots = spots.where((spot) => spot.x >= minX - 1 && spot.x <= maxX + 1).toList();
+    if (xSpan <= 100.0) { // 如果X轴跨度非常小 (例如因为错误或只有一个点被强制很近)
+        dynamicBottomTitleInterval = 15000.0; // 使用原先的默认值
+        dynamicVerticalGridInterval = 10000.0;
+    } else if (xSpan < 5000.0) { // X轴跨度小于5秒
+        dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 2.0); // 尝试2-3个标签
+        dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 2.0); // 尝试2-3条网格线
+    } else if (xSpan < 20000.0) { // X轴跨度小于20秒
+        dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 3.0); // 尝试3-4个标签
+        dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 4.0); // 尝试4-5条网格线
+    } else { // X轴跨度较大 (例如20秒到60秒或更多)
+        dynamicBottomTitleInterval = math.max(minSensibleXInterval, xSpan / 4.0); // 尝试4-5个标签
+        dynamicVerticalGridInterval = math.max(minSensibleXInterval, xSpan / 6.0); // 尝试6-7条网格线
+    }
+    // --- 结束 X轴动态间隔计算 ---
+
+    // --- 新增：过滤 spots --- (这段逻辑现在需要应用到每个segment，或者在生成segment前过滤)
+    // 为了简化，我们假设传入的 segmentedSpots 已经是基于某个更大范围的数据，
+    // 而 minX, maxX 控制的是 LineChart 的可视窗口。
+    // LineChart 会自动处理在其 minX/maxX 之外的点。
+    // 如果需要严格过滤每个segment的点以匹配minX/maxX，可以在创建LineChartBarData时进行。
+    // final filteredSpots = spots.where((spot) => spot.x >= minX - 1 && spot.x <= maxX + 1).toList();
+    // 对于分段数据，这个 "filteredSpots.isEmpty" 的检查逻辑需要更新：
+    final bool noDataToShow = allSegments.every((segment) => segment.isEmpty);
 
     return Card(
       elevation: 1,
@@ -138,7 +142,7 @@ class SingleChartCard extends StatelessWidget {
             Expanded(
               child: isLoading 
                   ? Center(child: CircularProgressIndicator(strokeWidth: 2, color: color))
-                  : filteredSpots.isEmpty // Check if filteredSpots is empty
+                  : noDataToShow
                       ? Center(
                           child: Column(
                             mainAxisAlignment: MainAxisAlignment.center,
@@ -222,17 +226,25 @@ class SingleChartCard extends StatelessWidget {
                     ),
                   ),
                   borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey)),
-                  lineBarsData: [
-                    LineChartBarData(
-                      spots: filteredSpots,
-                      isCurved: false,
+                  lineBarsData: allSegments.where((segment) => segment.isNotEmpty).map((segment) { // 过滤空段
+                    // 对每个段的点进行过滤，确保它们在当前可视的 minX/maxX 范围内
+                    // LineChart 内部也会裁剪，但显式过滤可以避免不必要的点传递
+                    final spotsForThisSegment = segment.where((spot) => spot.x >= minX -1 && spot.x <= maxX +1).toList();
+                    if (spotsForThisSegment.isEmpty && segment.isNotEmpty) { // 如果过滤后为空但原段不空，可能意味着所有点都在可视范围外
+                        // 这种情况不应该发生，因为 minX/maxX 是根据整体数据设置的
+                        // 但以防万一，可以返回一个空的 LineChartBarData 或跳过
+                    }
+
+                    return LineChartBarData(
+                      spots: spotsForThisSegment, // 使用过滤后的点
+                      isCurved: false, // 可以考虑曲线是否跨段连接
                       color: color,
                       barWidth: 2,
                       isStrokeCapRound: true,
-                      dotData: const FlDotData(show: false),
+                      dotData: spotsForThisSegment.length == 1 ? const FlDotData(show: true) : const FlDotData(show: false), // 单点段显示点
                       belowBarData: BarAreaData(show: false),
-                    ),
-                  ],
+                    );
+                  }).toList(),
                   lineTouchData: LineTouchData(
                      enabled: true,
                      handleBuiltInTouches: true, // 启用内置触摸处理（如图例）

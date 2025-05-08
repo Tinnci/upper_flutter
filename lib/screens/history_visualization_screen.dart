@@ -32,16 +32,16 @@ class _HistoryVisualizationScreenState
   double? _minX, _maxX;
   String? _selectedSensorIdentifier;
   final List<String> _availableSensors = ['噪声', '温度', '湿度', '光照'];
-  bool _initialLoadDone = false; // 标志位，确保初始加载只进行一次
+  bool _initialLoadDone = false;
+
+  // 定义数据点之间被认为是不连续的最大时间间隔
+  static const Duration MAX_TIME_GAP_FOR_LINE = Duration(minutes: 10);
 
   @override
   void initState() {
     super.initState();
-    // 初始化 _selectedSensorIdentifier，但不立即加载数据
-    // widget.sensorIdentifier 是从 HomeScreen 传递过来的
-    _selectedSensorIdentifier = widget.sensorIdentifier ?? _availableSensors.first;
-
-    // 设置默认日期范围，但不加载数据
+    // 如果从外部传入了 sensorIdentifier，则使用它；否则 _selectedSensorIdentifier 初始为 null
+    _selectedSensorIdentifier = widget.sensorIdentifier; 
     _setDefaultDateRange();
   }
 
@@ -60,10 +60,8 @@ class _HistoryVisualizationScreenState
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // 仅在首次构建时加载数据
     if (!_initialLoadDone) {
-      // 检查 widget.sensorIdentifier 是否已提供，如果提供了，则用它更新 _selectedSensorIdentifier
-      // 这一步确保了如果 HomeScreen 传递了 sensorIdentifier，它会被优先使用
+      // 如果 widget.sensorIdentifier 更新了 _selectedSensorIdentifier
       if (widget.sensorIdentifier != null && widget.sensorIdentifier != _selectedSensorIdentifier) {
         _selectedSensorIdentifier = widget.sensorIdentifier;
       }
@@ -71,10 +69,14 @@ class _HistoryVisualizationScreenState
       if (_selectedSensorIdentifier != null) {
         _loadHistoricalData();
       } else {
+        // 如果没有选定的传感器 (初始或被清除)，则不加载并显示提示
         if (mounted) {
           setState(() {
             _isLoading = false;
-            _errorMessage = "请选择一个传感器查看历史数据。";
+            _errorMessage = null; // 这不是一个错误状态
+            _historicalData = [];
+            _minX = null;
+            _maxX = null;
           });
         }
       }
@@ -85,17 +87,17 @@ class _HistoryVisualizationScreenState
   @override
   void didUpdateWidget(HistoryVisualizationScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // 当从外部传入的 sensorIdentifier (来自 HomeScreen 的图表点击) 发生变化时
     if (widget.sensorIdentifier != oldWidget.sensorIdentifier) {
-      _selectedSensorIdentifier = widget.sensorIdentifier ?? _availableSensors.first; // 更新内部选择
-      // 可能还需要重置日期范围或保持当前用户的选择，这里我们选择重新加载
+      // 当从外部（例如 HomeScreen）传入的 sensorIdentifier 改变时
+      _selectedSensorIdentifier = widget.sensorIdentifier; // 更新当前选择
       if (_selectedSensorIdentifier != null) {
-        _loadHistoricalData(); // 重新加载数据
+        _loadHistoricalData(); // 为新的传感器加载数据
       } else {
+        // 如果新的 sensorIdentifier 是 null，则清除数据并显示提示
         if (mounted) {
           setState(() {
             _isLoading = false;
-            _errorMessage = "请选择一个传感器查看历史数据。";
+            _errorMessage = null;
             _historicalData = [];
             _minX = null;
             _maxX = null;
@@ -162,10 +164,10 @@ class _HistoryVisualizationScreenState
   Future<void> _loadHistoricalData() async {
     if (!mounted) return;
     if (_selectedSensorIdentifier == null) {
-      if (mounted) { // Add mounted check before setState
+      if (mounted) {
         setState(() {
           _isLoading = false;
-          _errorMessage = "请先选择一个传感器。";
+          _errorMessage = null; // 不是错误，是等待选择
           _historicalData = [];
           _minX = null;
           _maxX = null;
@@ -231,9 +233,10 @@ class _HistoryVisualizationScreenState
     }
   }
 
-  List<FlSpot> _createSpotsForSensor(
+  // 修改此方法以返回分段的点列表
+  List<List<FlSpot>> _createSegmentedSpotsForSensor(
       List<SensorData> dataList, String? sensorIdentifier) {
-    if (dataList.isEmpty || sensorIdentifier == null) return [];
+    if (dataList.isEmpty || sensorIdentifier == null) return [[]];
 
     double Function(SensorData) getYValue;
     switch (sensorIdentifier) {
@@ -251,19 +254,47 @@ class _HistoryVisualizationScreenState
         break;
       default:
         debugPrint("未知传感器标识符: $sensorIdentifier");
-        return []; 
+        return [[]];
     }
 
-    return dataList.map((data) {
+    List<List<FlSpot>> allSegments = [];
+    List<FlSpot> currentSegment = [];
+
+    for (int i = 0; i < dataList.length; i++) {
+      final data = dataList[i];
       final x = data.timestamp.millisecondsSinceEpoch.toDouble();
       final y = getYValue(data);
+      FlSpot spot;
+
       if (y.isFinite) {
-        return FlSpot(x, y);
+        spot = FlSpot(x, y);
       } else {
         debugPrint("警告: 无效的 Y 值 ($y) 用于图表 (传感器: $sensorIdentifier) 在时间戳 $x. 替换为 0。");
-        return FlSpot(x, 0);
+        spot = FlSpot(x, 0); 
       }
-    }).toList();
+
+      if (currentSegment.isNotEmpty) {
+        final previousTimestamp = DateTime.fromMillisecondsSinceEpoch(currentSegment.last.x.toInt());
+        final currentTimestamp = data.timestamp;
+        if (currentTimestamp.difference(previousTimestamp) > MAX_TIME_GAP_FOR_LINE) {
+          // 时间间隔过大，结束当前段 (即使只有一个点也添加)
+          allSegments.add(List.from(currentSegment));
+          currentSegment.clear(); // 开始新段
+        }
+      }
+      currentSegment.add(spot); // 将当前点添加到（新的或现有的）段中
+    }
+
+    // 添加最后一段（如果非空）
+    if (currentSegment.isNotEmpty) {
+      allSegments.add(List.from(currentSegment));
+    }
+    
+    // 如果处理后没有段但原始数据非空（例如，所有点都无效并被替换为0但仍然没有形成段），
+    // 或者只有一个有效点，这里返回 [[]] 是安全的，因为 SingleChartCard 会处理 noDataToShow。
+    if (allSegments.isEmpty) return [[]]; 
+
+    return allSegments;
   }
 
   String _getSensorUnit(String? sensorIdentifier) {
@@ -352,7 +383,8 @@ class _HistoryVisualizationScreenState
 
   @override
   Widget build(BuildContext context) {
-    final spots = _createSpotsForSensor(_historicalData, _selectedSensorIdentifier);
+    // 使用新的方法创建分段数据
+    final List<List<FlSpot>> segmentedSpots = _createSegmentedSpotsForSensor(_historicalData, _selectedSensorIdentifier);
     final sensorUnit = _getSensorUnit(_selectedSensorIdentifier);
     final chartTitleSuffix = sensorUnit.isNotEmpty ? ' ($sensorUnit)' : '';
     final String chartDisplayTitle = _selectedSensorIdentifier != null 
@@ -383,9 +415,9 @@ class _HistoryVisualizationScreenState
                                 ? _buildMessageState(context, '无历史数据', Icons.sentiment_dissatisfied_outlined, details: '选定的传感器在指定的时间范围内没有数据记录。\n请尝试更改日期范围或选择其他传感器。')
                                 : (_minX == null || _maxX == null)
                                     ? _buildMessageState(context, '无法确定图表范围', Icons.error_outline, details: '数据有效，但无法确定有效的图表显示范围。请尝试调整时间。')
-                                    : SingleChartCard(
+                                    : SingleChartCard( // 传递分段数据
                                         title: chartDisplayTitle,
-                                        spots: spots,
+                                        segmentedSpots: segmentedSpots, // 修改参数名和类型
                                         color: sensorColor,
                                         minX: _minX!,
                                         maxX: _maxX!,

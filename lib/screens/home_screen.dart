@@ -837,7 +837,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final List<Widget> chartCards = [
       SingleChartCard(
         title: '噪声 (dB)',
-        spots: noiseSpots,
+        segmentedSpots: [noiseSpots], // Wrap spots in a list
         color: colorScheme.error,
         minX: minChartX,
         maxX: maxChartX,
@@ -849,7 +849,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
       SingleChartCard(
         title: '温度 (°C)',
-        spots: tempSpots,
+        segmentedSpots: [tempSpots], // Wrap spots in a list
         color: colorScheme.primary,
         minX: minChartX,
         maxX: maxChartX,
@@ -861,7 +861,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
       SingleChartCard(
         title: '湿度 (%)',
-        spots: humiditySpots,
+        segmentedSpots: [humiditySpots], // Wrap spots in a list
         color: colorScheme.tertiary,
         minX: minChartX,
         maxX: maxChartX,
@@ -873,7 +873,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       ),
       SingleChartCard(
         title: '光照 (lux)',
-        spots: lightSpots,
+        segmentedSpots: [lightSpots], // Wrap spots in a list
         color: colorScheme.secondary,
         minX: minChartX,
         maxX: maxChartX,
