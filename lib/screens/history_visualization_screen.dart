@@ -392,60 +392,67 @@ class _HistoryVisualizationScreenState
                                   : '历史数据图表';
     final sensorColor = _getSensorColor(context, _selectedSensorIdentifier);
 
-    return Padding(
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildFilterSection(context),
-          const SizedBox(height: 16),
-          Expanded(
-            child: Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _errorMessage != null
-                        ? _buildErrorState(context, _errorMessage!)
-                        : (_selectedSensorIdentifier == null) // 简化判断: 如果内部选择的传感器为空
-                            ? _buildMessageState(context, '请选择一个传感器', Icons.touch_app_outlined, details: '从上方的下拉菜单中选择一个传感器以查看其历史数据。')
-                            : _historicalData.isEmpty
-                                ? _buildMessageState(context, '无历史数据', Icons.sentiment_dissatisfied_outlined, details: '选定的传感器在指定的时间范围内没有数据记录。\n请尝试更改日期范围或选择其他传感器。')
-                                : (_minX == null || _maxX == null)
-                                    ? _buildMessageState(context, '无法确定图表范围', Icons.error_outline, details: '数据有效，但无法确定有效的图表显示范围。请尝试调整时间。')
-                                    : SingleChartCard( // 传递分段数据
-                                        title: chartDisplayTitle,
-                                        segmentedSpots: segmentedSpots, // 修改参数名和类型
-                                        color: sensorColor,
-                                        minX: _minX!,
-                                        maxX: _maxX!,
-                                        sensorIdentifier: _selectedSensorIdentifier!,
-                                        xAxisLabelFormatter: (value, timestamp) {
-                                          final xSpanMillis = (_maxX! - _minX!);
-                                          if (xSpanMillis <= 0) return DateFormat('HH:mm:ss').format(timestamp);
-                                          
-                                          final xSpanDays = xSpanMillis / (1000 * 60 * 60 * 24);
+    // Define a height for the chart container area
+    const double chartContainerHeight = 300.0;
 
-                                          if (xSpanDays <= 0.000694) {
-                                             return DateFormat('HH:mm:ss').format(timestamp);
-                                          } else if (xSpanDays <= 0.2) {
-                                            return DateFormat('HH:mm').format(timestamp);
-                                          } else if (xSpanDays <= 2) {
-                                            return DateFormat('dd HH:mm').format(timestamp);
-                                          } else if (xSpanDays <= 30) {
-                                             return DateFormat('MM-dd HH:mm').format(timestamp);
-                                          }
-                                          else {
-                                            return DateFormat('yy-MM-dd').format(timestamp);
-                                          }
-                                        },
-                                      ),
+    return SingleChildScrollView( // Wrap with SingleChildScrollView
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            _buildFilterSection(context),
+            const SizedBox(height: 16),
+            // Removed Expanded, using SizedBox to constrain height
+            SizedBox(
+              height: chartContainerHeight, 
+              child: Card(
+                elevation: 1,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                child: Padding(
+                  padding: const EdgeInsets.all(8.0),
+                  child: _isLoading
+                      ? const Center(child: CircularProgressIndicator())
+                      : _errorMessage != null
+                          ? _buildErrorState(context, _errorMessage!)
+                          : (_selectedSensorIdentifier == null) 
+                              ? _buildMessageState(context, '请选择一个传感器', Icons.touch_app_outlined, details: '从上方的下拉菜单中选择一个传感器以查看其历史数据。')
+                              : _historicalData.isEmpty
+                                  ? _buildMessageState(context, '无历史数据', Icons.sentiment_dissatisfied_outlined, details: '选定的传感器在指定的时间范围内没有数据记录。\n请尝试更改日期范围或选择其他传感器。')
+                                  : (_minX == null || _maxX == null)
+                                      ? _buildMessageState(context, '无法确定图表范围', Icons.error_outline, details: '数据有效，但无法确定有效的图表显示范围。请尝试调整时间。')
+                                      : SingleChartCard( 
+                                          title: chartDisplayTitle,
+                                          segmentedSpots: segmentedSpots, 
+                                          color: sensorColor,
+                                          minX: _minX!,
+                                          maxX: _maxX!,
+                                          sensorIdentifier: _selectedSensorIdentifier!,
+                                          xAxisLabelFormatter: (value, timestamp) {
+                                            final xSpanMillis = (_maxX! - _minX!);
+                                            if (xSpanMillis <= 0) return DateFormat('HH:mm:ss').format(timestamp);
+                                            
+                                            final xSpanDays = xSpanMillis / (1000 * 60 * 60 * 24);
+
+                                            if (xSpanDays <= 0.000694) { // less than 1 minute
+                                               return DateFormat('HH:mm:ss').format(timestamp);
+                                            } else if (xSpanDays <= 0.2) { // less than ~5 hours
+                                              return DateFormat('HH:mm').format(timestamp);
+                                            } else if (xSpanDays <= 2) { // less than 2 days
+                                              return DateFormat('dd HH:mm').format(timestamp);
+                                            } else if (xSpanDays <= 30) { // less than 30 days
+                                               return DateFormat('MM-dd HH:mm').format(timestamp);
+                                            }
+                                            else { // more than 30 days
+                                              return DateFormat('yy-MM-dd').format(timestamp);
+                                            }
+                                          },
+                                        ),
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
