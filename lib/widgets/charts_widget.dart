@@ -17,6 +17,7 @@ class SingleChartCard extends StatelessWidget {
   final String Function(double value, DateTime timestamp)? xAxisLabelFormatter;
   final double? highlightedXValue; // 新增
   final String? highlightedValueType; // 新增
+  final VoidCallback? onChartTapped; // 新增：图表点击回调
 
   const SingleChartCard({
     super.key,
@@ -31,6 +32,7 @@ class SingleChartCard extends StatelessWidget {
     this.xAxisLabelFormatter,
     this.highlightedXValue, // 新增
     this.highlightedValueType, // 新增
+    this.onChartTapped, // 新增
   });
 
   @override
@@ -275,6 +277,17 @@ class SingleChartCard extends StatelessWidget {
                   lineTouchData: LineTouchData(
                      enabled: true,
                      handleBuiltInTouches: true, // 启用内置触摸处理（如图例）
+                     touchCallback: (FlTouchEvent event, LineTouchResponse? response) {
+                       // 当用户在图表上完成一次点击（抬起手指）时
+                       if (event is FlTapUpEvent) {
+                         // 如果点击的不是数据点 (lineBarSpots 为空或 null)
+                         // 并且我们有一个 onChartTapped 回调
+                         if ((response == null || response.lineBarSpots == null || response.lineBarSpots!.isEmpty) && onChartTapped != null) {
+                           onChartTapped!();
+                         }
+                       }
+                       // 可以根据需要处理其他触摸事件，例如 FlLongPressStart, FlPanUpdateEnd 等
+                     },
                      touchTooltipData: LineTouchTooltipData(
                        getTooltipColor: (touchedSpot) => Colors.blueGrey.withAlpha(204), // Use integer alpha
                        getTooltipItems: (List<LineBarSpot> touchedBarSpots) {

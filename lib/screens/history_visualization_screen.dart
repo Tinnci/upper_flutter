@@ -41,6 +41,16 @@ class _HistoryVisualizationScreenState
   DateTime? _highlightedTimestamp; // 新增：高亮时间戳
   String? _highlightedSensorValueType; // 新增：高亮类型 ('max', 'min')
 
+  // 新增：清除图表高亮的方法
+  void _clearChartHighlight() {
+    if (_highlightedTimestamp != null || _highlightedSensorValueType != null) {
+      setState(() {
+        _highlightedTimestamp = null;
+        _highlightedSensorValueType = null;
+      });
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -173,7 +183,7 @@ class _HistoryVisualizationScreenState
         _errorMessage = null;
         _historicalData = []; 
         _statistics = null; 
-        _highlightedTimestamp = null; // 新增：加载数据时清除高亮
+        _highlightedTimestamp = null; // 加载新数据时也清除高亮，因为时间戳可能不再有效
         _highlightedSensorValueType = null;
       });
     }
@@ -495,7 +505,7 @@ class _HistoryVisualizationScreenState
     String? time,
     Color? valueColor,
     Widget? trailingWidget,
-    VoidCallback? onTap, // 新增：点击回调
+    VoidCallback? onTap,
   }) {
     final theme = Theme.of(context);
     return InkWell( // 新增：用 InkWell 包裹以实现点击效果
@@ -868,12 +878,11 @@ class _HistoryVisualizationScreenState
               value: _formatStatValue(_statistics!['max']),
               unit: sensorUnit,
               time: _statistics!['maxTime'] != null ? dateFormat.format(_statistics!['maxTime']) : 'N/A',
-              onTap: () { // 新增：最大值点击回调
+              onTap: () { 
                 if (_statistics!['maxTime'] != null) {
                   setState(() {
                     if (_highlightedTimestamp == _statistics!['maxTime'] && _highlightedSensorValueType == 'max') {
-                      _highlightedTimestamp = null; // 再次点击取消高亮
-                      _highlightedSensorValueType = null;
+                      _clearChartHighlight(); // 使用新方法清除
                     } else {
                       _highlightedTimestamp = _statistics!['maxTime'];
                       _highlightedSensorValueType = 'max';
@@ -889,12 +898,11 @@ class _HistoryVisualizationScreenState
               value: _formatStatValue(_statistics!['min']),
               unit: sensorUnit,
               time: _statistics!['minTime'] != null ? dateFormat.format(_statistics!['minTime']) : 'N/A',
-              onTap: () { // 新增：最小值点击回调
+              onTap: () { 
                 if (_statistics!['minTime'] != null) {
                   setState(() {
                      if (_highlightedTimestamp == _statistics!['minTime'] && _highlightedSensorValueType == 'min') {
-                      _highlightedTimestamp = null; // 再次点击取消高亮
-                      _highlightedSensorValueType = null;
+                      _clearChartHighlight(); // 使用新方法清除
                     } else {
                       _highlightedTimestamp = _statistics!['minTime'];
                       _highlightedSensorValueType = 'min';
@@ -979,6 +987,7 @@ class _HistoryVisualizationScreenState
                                           },
                                           highlightedXValue: _highlightedTimestamp?.millisecondsSinceEpoch.toDouble(),
                                           highlightedValueType: _highlightedSensorValueType,
+                                          onChartTapped: _clearChartHighlight, // 新增：传递回调
                                         ),
                 ),
               ),
