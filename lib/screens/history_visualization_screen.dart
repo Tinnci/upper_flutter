@@ -867,30 +867,43 @@ class _HistoryVisualizationScreenState
               ),
             ),
 
-          // 新增：显示比较信息
-          if (isLoadingPreviousPeriodData)
-            const Padding(
-              padding: EdgeInsets.only(top: 6.0, left: 4.0),
-              child: Row(
-                children: [
-                  SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
-                  SizedBox(width: 6),
-                  Text("加载前期数据...", style: TextStyle(fontSize: 10)),
-                ],
-              ),
-            )
-          else if (previousPeriodAverage != null && previousPeriodAverage.isFinite)
-            Padding(
-              padding: const EdgeInsets.only(top: 6.0, left: 4.0), // 与警告文本对齐
-              child: _buildComparisonRow(
-                context: context,
-                currentValue: currentValue,
-                previousValue: previousPeriodAverage,
-                unit: unit,
-                sensorIdentifier: _selectedSensorIdentifier,
-                settings: Provider.of<AppState>(context, listen: false).settings,
-              ),
-            ),
+          // 修正：使用 AnimatedSwitcher 替代 AnimatedVisibility
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (Widget child, Animation<double> animation) {
+              return FadeTransition(
+                opacity: animation,
+                // 如果需要尺寸动画，可以嵌套 SizeTransition
+                // child: SizeTransition(sizeFactor: animation, axisAlignment: -1.0, child: child),
+                child: child,
+              );
+            },
+            child: (isLoadingPreviousPeriodData || (previousPeriodAverage != null && previousPeriodAverage.isFinite))
+                ? Padding(
+                    // 使用 Key 来帮助 AnimatedSwitcher 识别子项变化
+                    key: ValueKey(isLoadingPreviousPeriodData 
+                        ? 'loading_comparison' 
+                        : 'comparison_${previousPeriodAverage.hashCode}'),
+                    padding: const EdgeInsets.only(top: 6.0, left: 4.0),
+                    child: isLoadingPreviousPeriodData
+                        ? const Row( // 加载指示器
+                            children: [
+                              SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                              SizedBox(width: 6),
+                              Text("加载前期对比...", style: TextStyle(fontSize: 10)),
+                            ],
+                          )
+                        : _buildComparisonRow( // 比较信息行 (previousPeriodAverage 此时已确认非null且finite)
+                            context: context,
+                            currentValue: currentValue,
+                            previousValue: previousPeriodAverage!, // 安全使用 !
+                            unit: unit,
+                            sensorIdentifier: _selectedSensorIdentifier,
+                            settings: Provider.of<AppState>(context, listen: false).settings,
+                          ),
+                  )
+                : const SizedBox.shrink(key: ValueKey('empty_comparison')), // 当不显示时，提供一个带key的空SizedBox
+          ),
           
           if (showWarningOrErrorText && alertIcon != null)
             Padding(
@@ -1083,21 +1096,22 @@ class _HistoryVisualizationScreenState
     Color trendChipBackgroundColor;
     Color trendChipContentColor;
 
+    // 检查并统一趋势图标为 _rounded
     switch (trendText) {
       case "上升":
       case "轻微上升":
-        trendIconData = Icons.trending_up_rounded;
+        trendIconData = Icons.trending_up_rounded; // 已是 _rounded
         trendChipBackgroundColor = theme.colorScheme.primaryContainer;
         trendChipContentColor = theme.colorScheme.onPrimaryContainer;
         break;
       case "下降":
       case "轻微下降":
-        trendIconData = Icons.trending_down_rounded;
+        trendIconData = Icons.trending_down_rounded; // 已是 _rounded
         trendChipBackgroundColor = theme.colorScheme.tertiaryContainer; 
         trendChipContentColor = theme.colorScheme.onTertiaryContainer;
         break;
       default: // 平稳
-        trendIconData = Icons.trending_flat_rounded;
+        trendIconData = Icons.trending_flat_rounded; // 已是 _rounded
         trendChipBackgroundColor = theme.colorScheme.secondaryContainer;
         trendChipContentColor = theme.colorScheme.onSecondaryContainer;
     }
@@ -1152,7 +1166,7 @@ class _HistoryVisualizationScreenState
             _buildVisualStatTile(
               context: context,
               label: '平均值',
-              icon: Icons.analytics_rounded, // Changed to rounded
+              icon: Icons.analytics_rounded, // 已是 _rounded
               currentValue: _statistics!['average'] as double,
               minValue: _statistics!['min'] as double,
               maxValue: _statistics!['max'] as double,
@@ -1174,7 +1188,7 @@ class _HistoryVisualizationScreenState
             _buildVisualStatTile(
               context: context,
               label: '中位数',
-              icon: Icons.linear_scale_rounded, 
+              icon: Icons.linear_scale_rounded, // 已是 _rounded
               currentValue: _statistics!['median'] as double,
               minValue: _statistics!['min'] as double,
               maxValue: _statistics!['max'] as double,
@@ -1184,7 +1198,7 @@ class _HistoryVisualizationScreenState
             
             _buildModernStatTile(
               context: context,
-              icon: Icons.arrow_upward_rounded, // 保持
+              icon: Icons.arrow_upward_rounded, // 已是 _rounded
               label: '最大值',
               value: _formatStatValue(_statistics!['max']),
               unit: sensorUnit,
@@ -1204,7 +1218,7 @@ class _HistoryVisualizationScreenState
             ),
             _buildModernStatTile(
               context: context,
-              icon: Icons.arrow_downward_rounded,
+              icon: Icons.arrow_downward_rounded, // 已是 _rounded
               label: '最小值',
               value: _formatStatValue(_statistics!['min']),
               unit: sensorUnit,
