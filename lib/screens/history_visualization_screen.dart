@@ -787,7 +787,7 @@ class _HistoryVisualizationScreenState
                     builder: (context, value, child) {
                       return LinearProgressIndicator(
                         value: value,
-                        backgroundColor: theme.colorScheme.surfaceContainerHighest, // Changed background color
+                        backgroundColor: theme.colorScheme.surfaceContainer, // 修改：使用 surfaceContainer 解决 surfaceVariant 弃用问题，并保持对比度
                         color: progressColor,
                         minHeight: 8, 
                         borderRadius: BorderRadius.circular(4), 
@@ -952,6 +952,7 @@ class _HistoryVisualizationScreenState
               minValue: _statistics!['min'] as double,
               maxValue: _statistics!['max'] as double,
               unit: sensorUnit,
+              sparklineSpots: avgSparklineSpots, // 新增：为中位数也传入 Sparkline 数据
             ),
             
             _buildModernStatTile(
