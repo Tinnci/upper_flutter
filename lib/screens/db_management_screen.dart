@@ -117,7 +117,7 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
     // 前面的 `if (!mounted) return;` 也覆盖了这一点，但显式检查也可以。
     if (!mounted) return; 
     final TimeOfDay? pickedTime = await showTimePicker(
-      context: dialogContext, // 再次使用传入的 context
+      context: context, // Changed from dialogContext to context
       initialTime: initialTime,
     );
 

@@ -132,7 +132,7 @@ class _HistoryVisualizationScreenState
     
     if (!mounted) return; // Re-check after await
     final TimeOfDay? pickedTime = await showTimePicker(
-      context: dialogContext,
+      context: context,
       initialTime: initialTimeToShow,
     );
 
