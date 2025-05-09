@@ -54,12 +54,11 @@ class AppState extends ChangeNotifier {
     if (index >= 0 && index <= 3) {
       _currentNavigationIndex = index;
       if (index == 1) {
-        selectedSensorForHistory = sensorIdentifier;
+        if (sensorIdentifier != null) {
+          selectedSensorForHistory = sensorIdentifier;
+        }
       } else {
-        if (sensorIdentifier == null && index == 1) {
-           // 如果是导航到历史页但没有指定 sensor, 保留当前的 selectedSensorForHistory
-           // 这允许用户在历史页内切换传感器后，这个选择仍然有效
-        } else if (index != 1) {
+        if (index != 1) {
           selectedSensorForHistory = null;
         }
       }

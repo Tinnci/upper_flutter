@@ -37,12 +37,16 @@ class _HistoryVisualizationScreenState
   // 定义数据点之间被认为是不连续的最大时间间隔
   static const Duration MAX_TIME_GAP_FOR_LINE = Duration(minutes: 10);
 
+  Map<String, dynamic>? _statistics;
+
   @override
   void initState() {
     super.initState();
-    // 如果从外部传入了 sensorIdentifier，则使用它；否则 _selectedSensorIdentifier 初始为 null
-    _selectedSensorIdentifier = widget.sensorIdentifier; 
+    // 如果从外部传入了 sensorIdentifier，则使用它；
+    // 否则 (widget.sensorIdentifier 为 null)，默认选择 "噪声"。
+    _selectedSensorIdentifier = widget.sensorIdentifier ?? '噪声';
     _setDefaultDateRange();
+    // _loadHistoricalData() 将在 didChangeDependencies 中被调用
   }
 
   void _setDefaultDateRange({bool sevenDays = true}) {
@@ -61,25 +65,20 @@ class _HistoryVisualizationScreenState
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_initialLoadDone) {
-      // 如果 widget.sensorIdentifier 更新了 _selectedSensorIdentifier
+      // 在 initState 中，_selectedSensorIdentifier 已经根据 widget.sensorIdentifier 或默认值 '噪声' 设置好了。
+      // 如果 widget.sensorIdentifier 更新了 _selectedSensorIdentifier (这种情况更多由 didUpdateWidget 处理，
+      // 但为了以防万一，这里的逻辑也检查一下)
       if (widget.sensorIdentifier != null && widget.sensorIdentifier != _selectedSensorIdentifier) {
         _selectedSensorIdentifier = widget.sensorIdentifier;
+      } else if (widget.sensorIdentifier == null && _selectedSensorIdentifier == null) {
+        // 如果 initState 由于某种原因未能设置初始值 (理论上不会发生，因为有 ?? '噪声')
+        // 则再次尝试设置为 '噪声'
+        _selectedSensorIdentifier = '噪声';
       }
       
-      if (_selectedSensorIdentifier != null) {
-        _loadHistoricalData();
-      } else {
-        // 如果没有选定的传感器 (初始或被清除)，则不加载并显示提示
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = null; // 这不是一个错误状态
-            _historicalData = [];
-            _minX = null;
-            _maxX = null;
-          });
-        }
-      }
+      // _selectedSensorIdentifier 现在应该总是有值 (特定传感器或 '噪声')
+      // 因此直接加载数据
+      _loadHistoricalData();
       _initialLoadDone = true;
     }
   }
@@ -88,22 +87,13 @@ class _HistoryVisualizationScreenState
   void didUpdateWidget(HistoryVisualizationScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.sensorIdentifier != oldWidget.sensorIdentifier) {
-      // 当从外部（例如 HomeScreen）传入的 sensorIdentifier 改变时
-      _selectedSensorIdentifier = widget.sensorIdentifier; // 更新当前选择
-      if (_selectedSensorIdentifier != null) {
-        _loadHistoricalData(); // 为新的传感器加载数据
-      } else {
-        // 如果新的 sensorIdentifier 是 null，则清除数据并显示提示
-        if (mounted) {
-          setState(() {
-            _isLoading = false;
-            _errorMessage = null;
-            _historicalData = [];
-            _minX = null;
-            _maxX = null;
-          });
-        }
-      }
+      // 当从外部（例如 HomeScreen）传入的 sensorIdentifier 改变时,
+      // 或者当它变为 null 时 (例如，通过 AppState 逻辑)，应用默认值 '噪声'
+      _selectedSensorIdentifier = widget.sensorIdentifier ?? '噪声';
+      
+      // _selectedSensorIdentifier 现在保证不为 null (传入的值或 '噪声')
+      // 所以直接为新的或默认的传感器加载数据
+      _loadHistoricalData();
     }
   }
 
@@ -180,6 +170,7 @@ class _HistoryVisualizationScreenState
         _isLoading = true;
         _errorMessage = null;
         _historicalData = []; 
+        _statistics = null; // 重置统计数据
       });
     }
 
@@ -210,9 +201,11 @@ class _HistoryVisualizationScreenState
                 _minX = center - (1000.0 * 60 * 2.5); // 扩展到5分钟窗口
                 _maxX = center + (1000.0 * 60 * 2.5);
             }
+            _calculateAndSetStatistics(data, _selectedSensorIdentifier); // 新增：计算统计数据
           } else {
             _minX = null;
             _maxX = null;
+            _statistics = null; // 清除统计数据
           }
           _isLoading = false;
         });
@@ -222,6 +215,7 @@ class _HistoryVisualizationScreenState
         setState(() {
           _errorMessage = '加载历史数据失败: $e';
           _isLoading = false;
+          _statistics = null; // 清除统计数据
         });
         // 在这里显示 SnackBar 之前也需要检查 mounted
         // if (mounted) { 
@@ -230,6 +224,101 @@ class _HistoryVisualizationScreenState
         //   );
         // }
       }
+    }
+  }
+
+  // 新增：用于从 SensorData 获取 Y 值的辅助函数
+  double _getYValueForStat(SensorData data, String? sensorIdentifier) {
+    if (sensorIdentifier == null) return double.nan;
+    switch (sensorIdentifier) {
+      case '噪声': return data.noiseDb;
+      case '温度': return data.temperature;
+      case '湿度': return data.humidity;
+      case '光照': return data.lightIntensity;
+      default: return double.nan;
+    }
+  }
+
+  void _calculateAndSetStatistics(List<SensorData> dataList, String? sensorIdentifier) {
+    if (dataList.isEmpty || sensorIdentifier == null) {
+      if (mounted) {
+        setState(() {
+          _statistics = null;
+        });
+      }
+      return;
+    }
+
+    final List<double> yValues = dataList
+        .map((data) => _getYValueForStat(data, sensorIdentifier))
+        .where((y) => y.isFinite) // 过滤掉无效值
+        .toList();
+
+    if (yValues.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _statistics = null;
+        });
+      }
+      return;
+    }
+
+    // 计算统计数据
+    final double minVal = yValues.reduce((a, b) => a < b ? a : b);
+    final double maxVal = yValues.reduce((a, b) => a > b ? a : b);
+    final double sum = yValues.reduce((a, b) => a + b);
+    final double average = sum / yValues.length;
+
+    yValues.sort();
+    final double median;
+    if (yValues.length % 2 == 1) {
+      median = yValues[yValues.length ~/ 2];
+    } else {
+      median = (yValues[yValues.length ~/ 2 - 1] + yValues[yValues.length ~/ 2]) / 2.0;
+    }
+
+    // 找到最大最小值对应的时间戳
+    SensorData? minDataPoint, maxDataPoint;
+    for (var data in dataList) {
+        final val = _getYValueForStat(data, sensorIdentifier);
+        if (val.isFinite) {
+            if (val == minVal && minDataPoint == null) minDataPoint = data; // 取第一个找到的
+            if (val == maxVal && maxDataPoint == null) maxDataPoint = data; // 取第一个找到的
+        }
+    }
+
+    // 简单趋势分析
+    String trend = "平稳";
+    if (yValues.length >= 10) { // 至少需要一些数据点来判断趋势
+      final firstHalfAvg = yValues.sublist(0, yValues.length ~/ 2).reduce((a, b) => a + b) / (yValues.length ~/ 2);
+      final secondHalfAvg = yValues.sublist(yValues.length ~/ 2).reduce((a, b) => a + b) / (yValues.length - (yValues.length ~/ 2));
+      final diffPercentage = (secondHalfAvg - firstHalfAvg).abs() / average;
+
+      if (secondHalfAvg > firstHalfAvg && diffPercentage > 0.1) { // 变化超过10%认为有趋势
+        trend = "上升";
+      } else if (secondHalfAvg < firstHalfAvg && diffPercentage > 0.1) {
+        trend = "下降";
+      }
+    } else if (yValues.length > 1 && yValues.last > yValues.first) {
+        trend = "轻微上升";
+    } else if (yValues.length > 1 && yValues.last < yValues.first) {
+        trend = "轻微下降";
+    }
+
+
+    if (mounted) {
+      setState(() {
+        _statistics = {
+          'count': yValues.length,
+          'min': minVal,
+          'minTime': minDataPoint?.timestamp,
+          'max': maxVal,
+          'maxTime': maxDataPoint?.timestamp,
+          'average': average,
+          'median': median,
+          'trend': trend,
+        };
+      });
     }
   }
 
@@ -381,6 +470,318 @@ class _HistoryVisualizationScreenState
     );
   }
 
+  // --- BEGINNING OF UPDATED STATISTICS PANEL AND HELPERS ---
+
+  String _formatStatValue(dynamic value) {
+    if (value is double) {
+      if ((value - value.truncate()).abs() < 0.05 && value.abs() < 1000 || value == 0) {
+        return value.truncate().toString();
+      }
+      return value.toStringAsFixed(1);
+    }
+    return value.toString();
+  }
+
+  Widget _buildModernStatTile({
+    required BuildContext context,
+    required IconData icon,
+    required String label,
+    required String value,
+    String? unit,
+    String? time,
+    Color? valueColor,
+    Widget? trailingWidget, 
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 4.0), // Increased vertical padding
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Icon(icon, color: theme.colorScheme.primary, size: 26), // Slightly larger icon
+          const SizedBox(width: 16),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: theme.textTheme.labelLarge),
+                if (time != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2.0),
+                    child: Text(
+                      time,
+                      style: theme.textTheme.bodySmall
+                          ?.copyWith(color: theme.colorScheme.outline),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (trailingWidget != null) ...[
+            trailingWidget,
+            const SizedBox(width: 8),
+          ],
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.baseline,
+                textBaseline: TextBaseline.alphabetic,
+                children: [
+                  Text(
+                    value,
+                    style: theme.textTheme.headlineSmall?.copyWith(
+                      color: valueColor ?? theme.colorScheme.onSurfaceVariant, // Use onSurfaceVariant for less emphasis than onSurface
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  if (unit != null) ...[
+                    const SizedBox(width: 3),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3.0), // Fine-tune baseline
+                      child: Text(
+                        unit,
+                        style: theme.textTheme.labelMedium?.copyWith(
+                          color: theme.colorScheme.outline,
+                        ),
+                      ),
+                    ),
+                  ]
+                ],
+              )
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildVisualStatTile({
+    required BuildContext context,
+    required String label,
+    required IconData icon,
+    required double currentValue,
+    required double minValue,
+    required double maxValue,
+    required String unit,
+    double? warningThreshold,
+    double? errorThreshold,
+    bool lowerIsBetter = false,
+  }) {
+    final theme = Theme.of(context);
+    final textStyle = theme.textTheme.labelLarge; // Use labelLarge for consistency
+    final valueStyle = theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600);
+
+    double progress = 0;
+    bool hasRange = maxValue > minValue;
+
+    if (hasRange) {
+      progress = (currentValue - minValue) / (maxValue - minValue);
+    } else {
+      progress = (currentValue >= minValue) ? 1.0 : 0.0;
+    }
+    progress = progress.clamp(0.0, 1.0);
+
+    Color progressColor = theme.colorScheme.primary;
+    Color valueColor = theme.colorScheme.onSurfaceVariant;
+
+    if (errorThreshold != null) {
+      if (lowerIsBetter ? currentValue < errorThreshold : currentValue > errorThreshold) {
+        progressColor = theme.colorScheme.error;
+        valueColor = theme.colorScheme.error;
+      } else if (warningThreshold != null && (lowerIsBetter ? currentValue < warningThreshold : currentValue > warningThreshold)) {
+        progressColor = theme.colorScheme.tertiary; // Using tertiary for warning
+        valueColor = theme.colorScheme.tertiary;
+      }
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: theme.colorScheme.secondary, size: 22), // Icon for visual stat
+              const SizedBox(width: 8),
+              Text(label, style: textStyle),
+              const Spacer(),
+              Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                     Text(_formatStatValue(currentValue), style: valueStyle?.copyWith(color: valueColor)),
+                     const SizedBox(width: 3),
+                     Padding(
+                       padding: const EdgeInsets.only(bottom: 3.0),
+                       child: Text(
+                         unit,
+                         style: theme.textTheme.labelMedium?.copyWith(
+                           color: theme.colorScheme.outline,
+                         ),
+                       ),
+                     ),
+                  ],
+              )
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (hasRange)
+            Row(
+              children: [
+                Text(_formatStatValue(minValue), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: LinearProgressIndicator(
+                    value: progress,
+                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                    color: progressColor,
+                    minHeight: 8, // Increased height
+                    borderRadius: BorderRadius.circular(4), // M3 style radius
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(_formatStatValue(maxValue), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
+              ],
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.only(left: 4.0, top: 2.0),
+              child: Text(
+                (minValue == maxValue) ? '(所有数据点均为此值)' : '(无有效范围)',
+                style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
+              ),
+            )
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStatisticsPanel(BuildContext context) {
+    if (_statistics == null || _statistics!.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    final sensorUnit = _getSensorUnit(_selectedSensorIdentifier);
+    final theme = Theme.of(context);
+    final dateFormat = DateFormat('MM-dd HH:mm:ss');
+    
+    // Access AppState for settings
+    final appState = Provider.of<AppState>(context, listen: false);
+    final settings = appState.settings;
+
+    IconData trendIcon;
+    Color trendChipColor;
+    String trendText = _statistics!['trend'].toString();
+
+    switch (trendText) {
+      case "上升":
+      case "轻微上升":
+        trendIcon = Icons.trending_up_rounded;
+        trendChipColor = theme.colorScheme.primaryContainer; // Or a success-like color
+        break;
+      case "下降":
+      case "轻微下降":
+        trendIcon = Icons.trending_down_rounded;
+        trendChipColor = theme.colorScheme.tertiaryContainer; // Or a warning-like color
+        break;
+      default: // 平稳
+        trendIcon = Icons.trending_flat_rounded;
+        trendChipColor = theme.colorScheme.secondaryContainer;
+    }
+
+    return Card(
+      elevation: 0, // M3 often uses elevation 0 for filled cards, relying on surface tint
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)), // Larger M3 radius
+      color: theme.colorScheme.surfaceContainerHighest, // M3 surface container color
+      margin: const EdgeInsets.only(top: 20.0, bottom: 8.0), // Added bottom margin
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              '数据洞察 (${_selectedSensorIdentifier ?? ""})',
+              style: theme.textTheme.titleLarge?.copyWith( // More prominent title
+                color: theme.colorScheme.onSurface,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Chip(
+              avatar: Icon(
+                trendIcon,
+                size: 18,
+                color: theme.colorScheme.onSurfaceVariant, // Color for icon inside chip
+              ),
+              label: Text('总体趋势: $trendText'),
+              backgroundColor: trendChipColor.withAlpha((255 * 0.6).round()),
+              labelStyle: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+              side: BorderSide.none,
+            ),
+            const Divider(height: 24, thickness: 0.5),
+
+            _buildModernStatTile(
+              context: context,
+              icon: Icons.format_list_numbered_rounded,
+              label: '数据点数量',
+              value: _statistics!['count'].toString(),
+            ),
+            
+            _buildVisualStatTile(
+              context: context,
+              label: '平均值',
+              icon: Icons.analytics_outlined, // Changed icon
+              currentValue: _statistics!['average'] as double,
+              minValue: _statistics!['min'] as double,
+              maxValue: _statistics!['max'] as double,
+              unit: sensorUnit,
+              warningThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh * 0.75 : // Example warning at 75%
+                                (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh * 0.9 : // Example
+                                (_selectedSensorIdentifier == '湿度' && settings.humidityThresholdHigh > 0) ? settings.humidityThresholdHigh * 0.9 : null,
+              errorThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh :
+                              (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh :
+                              (_selectedSensorIdentifier == '湿度' && settings.humidityThresholdHigh > 0) ? settings.humidityThresholdHigh : null,
+              lowerIsBetter: (_selectedSensorIdentifier == '温度' && (_statistics!['average'] as double) < settings.temperatureThresholdLow) ? true : false, // Example for low temp
+            ),
+
+            _buildVisualStatTile(
+              context: context,
+              label: '中位数',
+              icon: Icons.linear_scale_rounded, // Replaced icon
+              currentValue: _statistics!['median'] as double,
+              minValue: _statistics!['min'] as double,
+              maxValue: _statistics!['max'] as double,
+              unit: sensorUnit,
+            ),
+            
+            _buildModernStatTile(
+              context: context,
+              icon: Icons.arrow_upward_rounded,
+              label: '最大值',
+              value: _formatStatValue(_statistics!['max']),
+              unit: sensorUnit,
+              time: _statistics!['maxTime'] != null ? dateFormat.format(_statistics!['maxTime']) : 'N/A',
+            ),
+            _buildModernStatTile(
+              context: context,
+              icon: Icons.arrow_downward_rounded,
+              label: '最小值',
+              value: _formatStatValue(_statistics!['min']),
+              unit: sensorUnit,
+              time: _statistics!['minTime'] != null ? dateFormat.format(_statistics!['minTime']) : 'N/A',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- END OF UPDATED STATISTICS PANEL AND HELPERS ---
+
   @override
   Widget build(BuildContext context) {
     // 使用新的方法创建分段数据
@@ -451,6 +852,9 @@ class _HistoryVisualizationScreenState
                 ),
               ),
             ),
+            // 新增：显示统计面板
+            if (!_isLoading && _historicalData.isNotEmpty && _statistics != null)
+              _buildStatisticsPanel(context),
           ],
         ),
       ),
