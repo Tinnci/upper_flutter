@@ -15,6 +15,8 @@ class SingleChartCard extends StatelessWidget {
   final String sensorIdentifier;
   final Function(String sensorIdentifier)? onHistoryTap;
   final String Function(double value, DateTime timestamp)? xAxisLabelFormatter;
+  final double? highlightedXValue; // 新增
+  final String? highlightedValueType; // 新增
 
   const SingleChartCard({
     super.key,
@@ -27,6 +29,8 @@ class SingleChartCard extends StatelessWidget {
     required this.sensorIdentifier,
     this.onHistoryTap,
     this.xAxisLabelFormatter,
+    this.highlightedXValue, // 新增
+    this.highlightedValueType, // 新增
   });
 
   @override
@@ -34,7 +38,7 @@ class SingleChartCard extends StatelessWidget {
     return _buildChartCard(context, title, segmentedSpots, color, minX, maxX);
   }
 
-  Widget _buildChartCard(BuildContext context, String title, List<List<FlSpot>> allSegments, Color color, double minX, double maxX) {
+  Widget _buildChartCard(BuildContext context, String title, List<List<FlSpot>> allSegments, Color color, double minXValue, double maxXValue) {
     double minY = 0;
     double maxY = 10;
     
@@ -81,7 +85,7 @@ class SingleChartCard extends StatelessWidget {
     final safeHorizontalInterval = horizontalRange <= 0 ? 1.0 : horizontalRange / 5;
     
     // --- X轴动态间隔计算 ---
-    final double xSpan = (maxX - minX).abs(); // 获取X轴的实际跨度
+    final double xSpan = (maxXValue - minXValue).abs(); // 获取X轴的实际跨度
     
     final double dynamicBottomTitleInterval;
     final double dynamicVerticalGridInterval;
@@ -156,8 +160,8 @@ class SingleChartCard extends StatelessWidget {
                         )
                       : LineChart(
                 LineChartData(
-                  minX: minX,
-                  maxX: maxX,
+                  minX: minXValue,
+                  maxX: maxXValue,
                   minY: minY, 
                   maxY: maxY,
                   gridData: FlGridData(
@@ -185,7 +189,7 @@ class SingleChartCard extends StatelessWidget {
                         interval: dynamicBottomTitleInterval, 
                         getTitlesWidget: (value, meta) {
                           // 仅当值在有效范围内时尝试格式化
-                          if (value >= minX && value <= maxX) {
+                          if (value >= minXValue && value <= maxXValue) {
                              try {
                                final timestamp = DateTime.fromMillisecondsSinceEpoch(value.toInt());
                                // --- 关键修改：使用 xAxisLabelFormatter 或默认格式 ---
@@ -226,22 +230,45 @@ class SingleChartCard extends StatelessWidget {
                     ),
                   ),
                   borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey)),
-                  lineBarsData: allSegments.where((segment) => segment.isNotEmpty).map((segment) { // 过滤空段
+                  lineBarsData: allSegments.where((segment) => segment.isNotEmpty).map((segment) {
                     // 对每个段的点进行过滤，确保它们在当前可视的 minX/maxX 范围内
                     // LineChart 内部也会裁剪，但显式过滤可以避免不必要的点传递
-                    final spotsForThisSegment = segment.where((spot) => spot.x >= minX -1 && spot.x <= maxX +1).toList();
+                    final spotsForThisSegment = segment.where((spot) => spot.x >= minXValue -1 && spot.x <= maxXValue +1).toList();
                     if (spotsForThisSegment.isEmpty && segment.isNotEmpty) { // 如果过滤后为空但原段不空，可能意味着所有点都在可视范围外
                         // 这种情况不应该发生，因为 minX/maxX 是根据整体数据设置的
                         // 但以防万一，可以返回一个空的 LineChartBarData 或跳过
                     }
 
                     return LineChartBarData(
-                      spots: spotsForThisSegment, // 使用过滤后的点
-                      isCurved: false, // 可以考虑曲线是否跨段连接
+                      spots: spotsForThisSegment,
+                      isCurved: false,
                       color: color,
                       barWidth: 2,
                       isStrokeCapRound: true,
-                      dotData: spotsForThisSegment.length == 1 ? const FlDotData(show: true) : const FlDotData(show: false), // 单点段显示点
+                      dotData: FlDotData(
+                        show: true,
+                        checkToShowDot: (spot, barData) {
+                          if (highlightedXValue != null) {
+                            return (spot.x - highlightedXValue!).abs() < 1.0;
+                          }
+                          return spotsForThisSegment.length == 1 && highlightedXValue == null;
+                        },
+                        getDotPainter: (spot, percent, barData, index) {
+                          if (highlightedXValue != null && (spot.x - highlightedXValue!).abs() < 1.0) {
+                            return FlDotCirclePainter(
+                              radius: 5,
+                              color: Theme.of(context).colorScheme.onErrorContainer,
+                              strokeWidth: 2,
+                              strokeColor: Theme.of(context).colorScheme.errorContainer,
+                            );
+                          }
+                          return FlDotCirclePainter(
+                            radius: spotsForThisSegment.length == 1 ? 3 : 0,
+                            color: barData.color ?? Colors.blue,
+                            strokeWidth: 0,
+                          );
+                        },
+                      ),
                       belowBarData: BarAreaData(show: false),
                     );
                   }).toList(),

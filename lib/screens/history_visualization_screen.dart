@@ -38,6 +38,8 @@ class _HistoryVisualizationScreenState
   static const Duration MAX_TIME_GAP_FOR_LINE = Duration(minutes: 10);
 
   Map<String, dynamic>? _statistics;
+  DateTime? _highlightedTimestamp; // 新增：高亮时间戳
+  String? _highlightedSensorValueType; // 新增：高亮类型 ('max', 'min')
 
   @override
   void initState() {
@@ -170,7 +172,9 @@ class _HistoryVisualizationScreenState
         _isLoading = true;
         _errorMessage = null;
         _historicalData = []; 
-        _statistics = null; // 重置统计数据
+        _statistics = null; 
+        _highlightedTimestamp = null; // 新增：加载数据时清除高亮
+        _highlightedSensorValueType = null;
       });
     }
 
@@ -490,70 +494,89 @@ class _HistoryVisualizationScreenState
     String? unit,
     String? time,
     Color? valueColor,
-    Widget? trailingWidget, 
+    Widget? trailingWidget,
+    VoidCallback? onTap, // 新增：点击回调
   }) {
     final theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 4.0), // Increased vertical padding
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Icon(icon, color: theme.colorScheme.primary, size: 26), // Slightly larger icon
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: theme.textTheme.labelLarge),
-                if (time != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2.0),
-                    child: Text(
-                      time,
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: theme.colorScheme.outline),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          if (trailingWidget != null) ...[
-            trailingWidget,
-            const SizedBox(width: 8),
-          ],
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.baseline,
-                textBaseline: TextBaseline.alphabetic,
+    return InkWell( // 新增：用 InkWell 包裹以实现点击效果
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8.0), // 为涟漪效果设置圆角
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 4.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(icon, color: theme.colorScheme.primary, size: 26),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    value,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: valueColor ?? theme.colorScheme.onSurfaceVariant, // Use onSurfaceVariant for less emphasis than onSurface
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  if (unit != null) ...[
-                    const SizedBox(width: 3),
+                  Text(label, style: theme.textTheme.labelLarge),
+                  if (time != null)
                     Padding(
-                      padding: const EdgeInsets.only(bottom: 3.0), // Fine-tune baseline
-                      child: Text(
-                        unit,
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: theme.colorScheme.outline,
+                      padding: const EdgeInsets.only(top: 2.0),
+                      child: AnimatedSwitcher(
+                        duration: const Duration(milliseconds: 300),
+                        transitionBuilder: (Widget child, Animation<double> animation) {
+                          return FadeTransition(opacity: animation, child: child);
+                        },
+                        child: Text(
+                          time,
+                          key: ValueKey<String>(time),
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: theme.colorScheme.outline),
                         ),
                       ),
                     ),
-                  ]
                 ],
-              )
+              ),
+            ),
+            if (trailingWidget != null) ...[
+              trailingWidget,
+              const SizedBox(width: 8),
             ],
-          ),
-        ],
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Row(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.baseline,
+                  textBaseline: TextBaseline.alphabetic,
+                  children: [
+                    AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      transitionBuilder: (Widget child, Animation<double> animation) {
+                        return FadeTransition(opacity: animation, child: child);
+                      },
+                      child: Text(
+                        value,
+                        key: ValueKey<String>(value + (valueColor?.toString() ?? '')),
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: valueColor ?? theme.colorScheme.onSurfaceVariant,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (unit != null) ...[
+                      const SizedBox(width: 3),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 3.0),
+                        child: Text(
+                          unit,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.outline,
+                          ),
+                        ),
+                      ),
+                    ]
+                  ],
+                )
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -571,7 +594,7 @@ class _HistoryVisualizationScreenState
     bool lowerIsBetter = false,
   }) {
     final theme = Theme.of(context);
-    final textStyle = theme.textTheme.labelLarge; // Use labelLarge for consistency
+    final textStyle = theme.textTheme.labelLarge; 
     final valueStyle = theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w600);
 
     double progress = 0;
@@ -585,15 +608,34 @@ class _HistoryVisualizationScreenState
     progress = progress.clamp(0.0, 1.0);
 
     Color progressColor = theme.colorScheme.primary;
-    Color valueColor = theme.colorScheme.onSurfaceVariant;
+    Color valueColorForText = theme.colorScheme.onSurfaceVariant;
+    bool showErrorText = false;
+    String errorText = "";
 
     if (errorThreshold != null) {
-      if (lowerIsBetter ? currentValue < errorThreshold : currentValue > errorThreshold) {
-        progressColor = theme.colorScheme.error;
-        valueColor = theme.colorScheme.error;
-      } else if (warningThreshold != null && (lowerIsBetter ? currentValue < warningThreshold : currentValue > warningThreshold)) {
-        progressColor = theme.colorScheme.tertiary; // Using tertiary for warning
-        valueColor = theme.colorScheme.tertiary;
+      final appState = Provider.of<AppState>(context, listen: false); // Access AppState for settings
+      final settings = appState.settings;
+
+      if (lowerIsBetter) {
+        if (currentValue < errorThreshold) {
+          progressColor = theme.colorScheme.error;
+          valueColorForText = theme.colorScheme.error;
+          showErrorText = true;
+          errorText = "$label 低于阈值: ${_formatStatValue(errorThreshold)} $unit";
+        } else if (warningThreshold != null && currentValue < warningThreshold) {
+          progressColor = theme.colorScheme.tertiary; 
+          valueColorForText = theme.colorScheme.tertiary;
+        }
+      } else {
+        if (currentValue > errorThreshold) {
+          progressColor = theme.colorScheme.error;
+          valueColorForText = theme.colorScheme.error;
+          showErrorText = true;
+          errorText = "$label 超过阈值: ${_formatStatValue(errorThreshold)} $unit";
+        } else if (warningThreshold != null && currentValue > warningThreshold) {
+          progressColor = theme.colorScheme.tertiary; 
+          valueColorForText = theme.colorScheme.tertiary;
+        }
       }
     }
 
@@ -604,7 +646,7 @@ class _HistoryVisualizationScreenState
         children: [
           Row(
             children: [
-              Icon(icon, color: theme.colorScheme.secondary, size: 22), // Icon for visual stat
+              Icon(icon, color: theme.colorScheme.secondary, size: 22), 
               const SizedBox(width: 8),
               Text(label, style: textStyle),
               const Spacer(),
@@ -613,7 +655,17 @@ class _HistoryVisualizationScreenState
                   crossAxisAlignment: CrossAxisAlignment.baseline,
                   textBaseline: TextBaseline.alphabetic,
                   children: [
-                     Text(_formatStatValue(currentValue), style: valueStyle?.copyWith(color: valueColor)),
+                     AnimatedSwitcher(
+                       duration: const Duration(milliseconds: 300),
+                       transitionBuilder: (Widget child, Animation<double> animation) {
+                         return FadeTransition(opacity: animation, child: child);
+                       },
+                       child: Text(
+                         _formatStatValue(currentValue),
+                         key: ValueKey<String>(_formatStatValue(currentValue) + valueColorForText.toString()),
+                         style: valueStyle?.copyWith(color: valueColorForText)
+                       ),
+                     ),
                      const SizedBox(width: 3),
                      Padding(
                        padding: const EdgeInsets.only(bottom: 3.0),
@@ -632,19 +684,46 @@ class _HistoryVisualizationScreenState
           if (hasRange)
             Row(
               children: [
-                Text(_formatStatValue(minValue), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: LinearProgressIndicator(
-                    value: progress,
-                    backgroundColor: theme.colorScheme.surfaceContainerHighest,
-                    color: progressColor,
-                    minHeight: 8, // Increased height
-                    borderRadius: BorderRadius.circular(4), // M3 style radius
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  transitionBuilder: (Widget child, Animation<double> animation) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+                  child: Text(
+                    _formatStatValue(minValue),
+                    key: ValueKey<String>('min-${_formatStatValue(minValue)}'),
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)
                   ),
                 ),
                 const SizedBox(width: 8),
-                Text(_formatStatValue(maxValue), style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)),
+                Expanded(
+                  child: TweenAnimationBuilder<double>(
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.easeInOut,
+                    tween: Tween<double>(begin: 0, end: progress),
+                    builder: (context, value, child) {
+                      return LinearProgressIndicator(
+                        value: value,
+                        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                        color: progressColor,
+                        minHeight: 8, 
+                        borderRadius: BorderRadius.circular(4), 
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(width: 8),
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 300),
+                  transitionBuilder: (Widget child, Animation<double> animation) {
+                    return FadeTransition(opacity: animation, child: child);
+                  },
+                  child: Text(
+                    _formatStatValue(maxValue),
+                    key: ValueKey<String>('max-${_formatStatValue(maxValue)}'),
+                    style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline)
+                  ),
+                ),
               ],
             )
           else
@@ -654,7 +733,24 @@ class _HistoryVisualizationScreenState
                 (minValue == maxValue) ? '(所有数据点均为此值)' : '(无有效范围)',
                 style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
               ),
-            )
+            ),
+          if (showErrorText) // 新增：显示警告文本
+            Padding(
+              padding: const EdgeInsets.only(top: 6.0, left: 4.0),
+              child: Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: theme.colorScheme.error, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      errorText,
+                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -669,35 +765,35 @@ class _HistoryVisualizationScreenState
     final theme = Theme.of(context);
     final dateFormat = DateFormat('MM-dd HH:mm:ss');
     
-    // Access AppState for settings
     final appState = Provider.of<AppState>(context, listen: false);
     final settings = appState.settings;
 
     IconData trendIcon;
     Color trendChipColor;
     String trendText = _statistics!['trend'].toString();
+    final chipKey = ValueKey<String>(trendText + (_selectedSensorIdentifier ?? ''));
 
     switch (trendText) {
       case "上升":
       case "轻微上升":
         trendIcon = Icons.trending_up_rounded;
-        trendChipColor = theme.colorScheme.primaryContainer; // Or a success-like color
+        trendChipColor = theme.colorScheme.primaryContainer;
         break;
       case "下降":
       case "轻微下降":
         trendIcon = Icons.trending_down_rounded;
-        trendChipColor = theme.colorScheme.tertiaryContainer; // Or a warning-like color
+        trendChipColor = theme.colorScheme.tertiaryContainer;
         break;
-      default: // 平稳
+      default:
         trendIcon = Icons.trending_flat_rounded;
         trendChipColor = theme.colorScheme.secondaryContainer;
     }
 
     return Card(
-      elevation: 0, // M3 often uses elevation 0 for filled cards, relying on surface tint
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)), // Larger M3 radius
-      color: theme.colorScheme.surfaceContainerHighest, // M3 surface container color
-      margin: const EdgeInsets.only(top: 20.0, bottom: 8.0), // Added bottom margin
+      elevation: 0, 
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)), 
+      color: theme.colorScheme.surfaceContainerHighest, 
+      margin: const EdgeInsets.only(top: 20.0, bottom: 8.0), 
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -705,22 +801,29 @@ class _HistoryVisualizationScreenState
           children: [
             Text(
               '数据洞察 (${_selectedSensorIdentifier ?? ""})',
-              style: theme.textTheme.titleLarge?.copyWith( // More prominent title
+              style: theme.textTheme.titleLarge?.copyWith( 
                 color: theme.colorScheme.onSurface,
               ),
             ),
             const SizedBox(height: 8),
-            Chip(
-              avatar: Icon(
-                trendIcon,
-                size: 18,
-                color: theme.colorScheme.onSurfaceVariant, // Color for icon inside chip
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(opacity: animation, child: ScaleTransition(scale: animation, child: child));
+              },
+              child: Chip(
+                key: chipKey,
+                avatar: Icon(
+                  trendIcon,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant, 
+                ),
+                label: Text('总体趋势: $trendText'),
+                backgroundColor: trendChipColor.withAlpha((255 * 0.6).round()),
+                labelStyle: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                side: BorderSide.none,
               ),
-              label: Text('总体趋势: $trendText'),
-              backgroundColor: trendChipColor.withAlpha((255 * 0.6).round()),
-              labelStyle: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
-              side: BorderSide.none,
             ),
             const Divider(height: 24, thickness: 0.5),
 
@@ -734,24 +837,24 @@ class _HistoryVisualizationScreenState
             _buildVisualStatTile(
               context: context,
               label: '平均值',
-              icon: Icons.analytics_outlined, // Changed icon
+              icon: Icons.analytics_outlined, 
               currentValue: _statistics!['average'] as double,
               minValue: _statistics!['min'] as double,
               maxValue: _statistics!['max'] as double,
               unit: sensorUnit,
-              warningThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh * 0.75 : // Example warning at 75%
-                                (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh * 0.9 : // Example
+              warningThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh * 0.75 : 
+                                (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh * 0.9 : 
                                 (_selectedSensorIdentifier == '湿度' && settings.humidityThresholdHigh > 0) ? settings.humidityThresholdHigh * 0.9 : null,
               errorThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh :
                               (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh :
                               (_selectedSensorIdentifier == '湿度' && settings.humidityThresholdHigh > 0) ? settings.humidityThresholdHigh : null,
-              lowerIsBetter: (_selectedSensorIdentifier == '温度' && (_statistics!['average'] as double) < settings.temperatureThresholdLow) ? true : false, // Example for low temp
+              lowerIsBetter: (_selectedSensorIdentifier == '温度' && (_statistics!['average'] as double) < settings.temperatureThresholdLow) ? true : false, 
             ),
 
             _buildVisualStatTile(
               context: context,
               label: '中位数',
-              icon: Icons.linear_scale_rounded, // Replaced icon
+              icon: Icons.linear_scale_rounded, 
               currentValue: _statistics!['median'] as double,
               minValue: _statistics!['min'] as double,
               maxValue: _statistics!['max'] as double,
@@ -765,6 +868,19 @@ class _HistoryVisualizationScreenState
               value: _formatStatValue(_statistics!['max']),
               unit: sensorUnit,
               time: _statistics!['maxTime'] != null ? dateFormat.format(_statistics!['maxTime']) : 'N/A',
+              onTap: () { // 新增：最大值点击回调
+                if (_statistics!['maxTime'] != null) {
+                  setState(() {
+                    if (_highlightedTimestamp == _statistics!['maxTime'] && _highlightedSensorValueType == 'max') {
+                      _highlightedTimestamp = null; // 再次点击取消高亮
+                      _highlightedSensorValueType = null;
+                    } else {
+                      _highlightedTimestamp = _statistics!['maxTime'];
+                      _highlightedSensorValueType = 'max';
+                    }
+                  });
+                }
+              },
             ),
             _buildModernStatTile(
               context: context,
@@ -773,6 +889,19 @@ class _HistoryVisualizationScreenState
               value: _formatStatValue(_statistics!['min']),
               unit: sensorUnit,
               time: _statistics!['minTime'] != null ? dateFormat.format(_statistics!['minTime']) : 'N/A',
+              onTap: () { // 新增：最小值点击回调
+                if (_statistics!['minTime'] != null) {
+                  setState(() {
+                     if (_highlightedTimestamp == _statistics!['minTime'] && _highlightedSensorValueType == 'min') {
+                      _highlightedTimestamp = null; // 再次点击取消高亮
+                      _highlightedSensorValueType = null;
+                    } else {
+                      _highlightedTimestamp = _statistics!['minTime'];
+                      _highlightedSensorValueType = 'min';
+                    }
+                  });
+                }
+              },
             ),
           ],
         ),
@@ -848,6 +977,8 @@ class _HistoryVisualizationScreenState
                                               return DateFormat('yy-MM-dd').format(timestamp);
                                             }
                                           },
+                                          highlightedXValue: _highlightedTimestamp?.millisecondsSinceEpoch.toDouble(),
+                                          highlightedValueType: _highlightedSensorValueType,
                                         ),
                 ),
               ),
