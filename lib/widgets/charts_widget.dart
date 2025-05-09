@@ -233,13 +233,7 @@ class SingleChartCard extends StatelessWidget {
                   ),
                   borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey)),
                   lineBarsData: allSegments.where((segment) => segment.isNotEmpty).map((segment) {
-                    // 对每个段的点进行过滤，确保它们在当前可视的 minX/maxX 范围内
-                    // LineChart 内部也会裁剪，但显式过滤可以避免不必要的点传递
                     final spotsForThisSegment = segment.where((spot) => spot.x >= minXValue -1 && spot.x <= maxXValue +1).toList();
-                    if (spotsForThisSegment.isEmpty && segment.isNotEmpty) { // 如果过滤后为空但原段不空，可能意味着所有点都在可视范围外
-                        // 这种情况不应该发生，因为 minX/maxX 是根据整体数据设置的
-                        // 但以防万一，可以返回一个空的 LineChartBarData 或跳过
-                    }
 
                     return LineChartBarData(
                       spots: spotsForThisSegment,
@@ -251,21 +245,36 @@ class SingleChartCard extends StatelessWidget {
                         show: true,
                         checkToShowDot: (spot, barData) {
                           if (highlightedXValue != null) {
-                            return (spot.x - highlightedXValue!).abs() < 1.0;
+                            // Check if the current spot's x value is close to the highlightedXValue
+                            return (spot.x - highlightedXValue!).abs() < 0.001; // Using a very small tolerance for double comparison
                           }
-                          return spotsForThisSegment.length == 1 && highlightedXValue == null;
+                          // Show dot if only one point in segment, or always hide if not highlighting
+                          return spotsForThisSegment.length == 1 && highlightedXValue == null; 
                         },
                         getDotPainter: (spot, percent, barData, index) {
-                          if (highlightedXValue != null && (spot.x - highlightedXValue!).abs() < 1.0) {
+                          bool isActuallyHighlighted = highlightedXValue != null && (spot.x - highlightedXValue!).abs() < 0.001;
+
+                          if (isActuallyHighlighted) {
+                            // Focused point (max/min from stats panel)
+                            Color dotFocusColor = Theme.of(context).colorScheme.secondary; // Example: secondary for focus
+                            Color strokeFocusColor = Theme.of(context).colorScheme.onSecondary;
+                            
+                            // Future: If highlightedValueType could be 'error' or 'warning' from chart itself
+                            // if (highlightedValueType == 'error_point_type_from_chart') {
+                            //   dotFocusColor = Theme.of(context).colorScheme.error;
+                            //   strokeFocusColor = Theme.of(context).colorScheme.onError;
+                            // }
+
                             return FlDotCirclePainter(
-                              radius: 5,
-                              color: Theme.of(context).colorScheme.onErrorContainer,
+                              radius: 6, // Larger radius for highlighted dot
+                              color: dotFocusColor,
                               strokeWidth: 2,
-                              strokeColor: Theme.of(context).colorScheme.errorContainer,
+                              strokeColor: strokeFocusColor,
                             );
                           }
+                          // Default painter for other dots (e.g., single point segments if not highlighting)
                           return FlDotCirclePainter(
-                            radius: spotsForThisSegment.length == 1 ? 3 : 0,
+                            radius: spotsForThisSegment.length == 1 ? 3 : 0, 
                             color: barData.color ?? Colors.blue,
                             strokeWidth: 0,
                           );

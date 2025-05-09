@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../providers/app_state.dart';
 import '../models/sensor_data.dart';
 import '../widgets/charts_widget.dart';
+import 'dart:math' as math;
 
 class HistoryVisualizationScreen extends StatefulWidget {
   final String? sensorIdentifier; // e.g., "噪声", "温度"
@@ -36,6 +37,13 @@ class _HistoryVisualizationScreenState
 
   // 定义数据点之间被认为是不连续的最大时间间隔
   static const Duration MAX_TIME_GAP_FOR_LINE = Duration(minutes: 10);
+
+  // 新增：阈值因子常量
+  static const double _noiseWarningFactor = 0.75;
+  static const double _tempHighWarningFactor = 0.9;
+  static const double _humidityHighWarningFactor = 0.9;
+  // 对于低温，可以定义一个绝对的警告偏移量，或者也用因子
+  static const double _tempLowWarningOffset = 2.0; // 例如，比低温错误阈值高2度算警告
 
   Map<String, dynamic>? _statistics;
   DateTime? _highlightedTimestamp; // 新增：高亮时间戳
@@ -319,6 +327,13 @@ class _HistoryVisualizationScreenState
         trend = "轻微下降";
     }
 
+    // 新增：为 Sparkline 准备数据
+    List<FlSpot> sparklineSpots = [];
+    if (yValues.length > 1) { // 至少需要两个点来画线
+      for (int i = 0; i < yValues.length; i++) {
+        sparklineSpots.add(FlSpot(i.toDouble(), yValues[i]));
+      }
+    }
 
     if (mounted) {
       setState(() {
@@ -331,6 +346,7 @@ class _HistoryVisualizationScreenState
           'average': average,
           'median': median,
           'trend': trend,
+          'sparklineSpots': sparklineSpots, // 新增：存储 Sparkline 数据
         };
       });
     }
@@ -591,6 +607,52 @@ class _HistoryVisualizationScreenState
     );
   }
 
+  // 新增：构建 Sparkline 的辅助 Widget
+  Widget _buildSparkline(BuildContext context, List<FlSpot> spots, Color lineColor) {
+    if (spots.isEmpty || spots.length < 2) {
+      return const SizedBox(height: 30, width: 80); // 保持占位符大小一致
+    }
+
+    double minY = spots.map((s) => s.y).reduce((a, b) => math.min(a, b));
+    double maxY = spots.map((s) => s.y).reduce((a, b) => math.max(a, b));
+    if (minY == maxY) { // 如果所有点 Y 值相同，稍微扩展范围
+      minY -= 1;
+      maxY += 1;
+    }
+    if (minY == maxY && minY == 0) { // 如果所有点都是0
+        maxY =1; // 避免 minY 和 maxY 都是0
+    }
+
+
+    return SizedBox(
+      height: 30, // Sparkline 的高度
+      width: 80,  // Sparkline 的宽度
+      child: LineChart(
+        LineChartData(
+          minX: 0,
+          maxX: (spots.length - 1).toDouble(),
+          minY: minY,
+          maxY: maxY,
+          gridData: const FlGridData(show: false), // 不显示网格
+          titlesData: const FlTitlesData(show: false), // 不显示标题和坐标轴
+          borderData: FlBorderData(show: false), // 不显示边框
+          lineTouchData: const LineTouchData(enabled: false), // 禁用触摸
+          lineBarsData: [
+            LineChartBarData(
+              spots: spots,
+              isCurved: true,
+              color: lineColor,
+              barWidth: 1.5,
+              isStrokeCapRound: true,
+              dotData: const FlDotData(show: false), // 不显示数据点
+              belowBarData: BarAreaData(show: false),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildVisualStatTile({
     required BuildContext context,
     required String label,
@@ -599,9 +661,11 @@ class _HistoryVisualizationScreenState
     required double minValue,
     required double maxValue,
     required String unit,
-    double? warningThreshold,
-    double? errorThreshold,
-    bool lowerIsBetter = false,
+    double? highWarningThreshold,
+    double? highErrorThreshold,
+    double? lowWarningThreshold,
+    double? lowErrorThreshold,
+    List<FlSpot>? sparklineSpots,
   }) {
     final theme = Theme.of(context);
     final textStyle = theme.textTheme.labelLarge; 
@@ -619,35 +683,40 @@ class _HistoryVisualizationScreenState
 
     Color progressColor = theme.colorScheme.primary;
     Color valueColorForText = theme.colorScheme.onSurfaceVariant;
-    bool showErrorText = false;
-    String errorText = "";
+    bool showWarningOrErrorText = false;
+    String alertText = "";
+    IconData? alertIcon;
 
-    if (errorThreshold != null) {
-      final appState = Provider.of<AppState>(context, listen: false); // Access AppState for settings
-      final settings = appState.settings;
-
-      if (lowerIsBetter) {
-        if (currentValue < errorThreshold) {
-          progressColor = theme.colorScheme.error;
-          valueColorForText = theme.colorScheme.error;
-          showErrorText = true;
-          errorText = "$label 低于阈值: ${_formatStatValue(errorThreshold)} $unit";
-        } else if (warningThreshold != null && currentValue < warningThreshold) {
-          progressColor = theme.colorScheme.tertiary; 
-          valueColorForText = theme.colorScheme.tertiary;
-        }
-      } else {
-        if (currentValue > errorThreshold) {
-          progressColor = theme.colorScheme.error;
-          valueColorForText = theme.colorScheme.error;
-          showErrorText = true;
-          errorText = "$label 超过阈值: ${_formatStatValue(errorThreshold)} $unit";
-        } else if (warningThreshold != null && currentValue > warningThreshold) {
-          progressColor = theme.colorScheme.tertiary; 
-          valueColorForText = theme.colorScheme.tertiary;
-        }
-      }
+    // 高阈值判断
+    if (highErrorThreshold != null && currentValue > highErrorThreshold) {
+      progressColor = theme.colorScheme.error;
+      valueColorForText = theme.colorScheme.error;
+      showWarningOrErrorText = true;
+      alertText = "$label 超过高阈值 (${_formatStatValue(highErrorThreshold)} $unit)";
+      alertIcon = Icons.error_outline_rounded; // Consistent rounded icon
+    } else if (highWarningThreshold != null && currentValue > highWarningThreshold) {
+      progressColor = theme.colorScheme.tertiary; 
+      valueColorForText = theme.colorScheme.tertiary;
+      showWarningOrErrorText = true;
+      alertText = "$label 接近高阈值 (${_formatStatValue(highWarningThreshold)} $unit)";
+      alertIcon = Icons.warning_amber_rounded;
     }
+
+    // 低阈值判断 (仅当高阈值未触发警告/错误时，避免信息重叠)
+    if (!showWarningOrErrorText && lowErrorThreshold != null && currentValue < lowErrorThreshold) {
+      progressColor = theme.colorScheme.error; 
+      valueColorForText = theme.colorScheme.error;
+      showWarningOrErrorText = true;
+      alertText = "$label 低于低阈值 (${_formatStatValue(lowErrorThreshold)} $unit)";
+      alertIcon = Icons.error_outline_rounded; // Consistent rounded icon
+    } else if (!showWarningOrErrorText && lowWarningThreshold != null && currentValue < lowWarningThreshold) {
+      progressColor = theme.colorScheme.tertiary; 
+      valueColorForText = theme.colorScheme.tertiary;
+      showWarningOrErrorText = true;
+      alertText = "$label 接近低阈值 (${_formatStatValue(lowWarningThreshold)} $unit)";
+      alertIcon = Icons.warning_amber_rounded;
+    }
+
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
@@ -660,6 +729,10 @@ class _HistoryVisualizationScreenState
               const SizedBox(width: 8),
               Text(label, style: textStyle),
               const Spacer(),
+              if (sparklineSpots != null && sparklineSpots.isNotEmpty) ...[
+                _buildSparkline(context, sparklineSpots, progressColor), 
+                const SizedBox(width: 8),
+              ],
               Row(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.baseline,
@@ -714,7 +787,7 @@ class _HistoryVisualizationScreenState
                     builder: (context, value, child) {
                       return LinearProgressIndicator(
                         value: value,
-                        backgroundColor: theme.colorScheme.surfaceContainerHighest,
+                        backgroundColor: theme.colorScheme.surfaceContainerHighest, // Changed background color
                         color: progressColor,
                         minHeight: 8, 
                         borderRadius: BorderRadius.circular(4), 
@@ -744,17 +817,17 @@ class _HistoryVisualizationScreenState
                 style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.outline),
               ),
             ),
-          if (showErrorText) // 新增：显示警告文本
+          if (showWarningOrErrorText && alertIcon != null)
             Padding(
               padding: const EdgeInsets.only(top: 6.0, left: 4.0),
               child: Row(
                 children: [
-                  Icon(Icons.warning_amber_rounded, color: theme.colorScheme.error, size: 16),
+                  Icon(alertIcon, color: valueColorForText, size: 16), 
                   const SizedBox(width: 6),
                   Expanded(
                     child: Text(
-                      errorText,
-                      style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.error),
+                      alertText, // Display the specific alert text
+                      style: theme.textTheme.bodySmall?.copyWith(color: valueColorForText),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -778,26 +851,34 @@ class _HistoryVisualizationScreenState
     final appState = Provider.of<AppState>(context, listen: false);
     final settings = appState.settings;
 
-    IconData trendIcon;
-    Color trendChipColor;
+    // Ensure trendText and chipKey are defined before use
     String trendText = _statistics!['trend'].toString();
     final chipKey = ValueKey<String>(trendText + (_selectedSensorIdentifier ?? ''));
+
+    IconData trendIconData;
+    Color trendChipBackgroundColor;
+    Color trendChipContentColor;
 
     switch (trendText) {
       case "上升":
       case "轻微上升":
-        trendIcon = Icons.trending_up_rounded;
-        trendChipColor = theme.colorScheme.primaryContainer;
+        trendIconData = Icons.trending_up_rounded;
+        trendChipBackgroundColor = theme.colorScheme.primaryContainer;
+        trendChipContentColor = theme.colorScheme.onPrimaryContainer;
         break;
       case "下降":
       case "轻微下降":
-        trendIcon = Icons.trending_down_rounded;
-        trendChipColor = theme.colorScheme.tertiaryContainer;
+        trendIconData = Icons.trending_down_rounded;
+        trendChipBackgroundColor = theme.colorScheme.tertiaryContainer; 
+        trendChipContentColor = theme.colorScheme.onTertiaryContainer;
         break;
-      default:
-        trendIcon = Icons.trending_flat_rounded;
-        trendChipColor = theme.colorScheme.secondaryContainer;
+      default: // 平稳
+        trendIconData = Icons.trending_flat_rounded;
+        trendChipBackgroundColor = theme.colorScheme.secondaryContainer;
+        trendChipContentColor = theme.colorScheme.onSecondaryContainer;
     }
+
+    final List<FlSpot>? avgSparklineSpots = _statistics!['sparklineSpots'] as List<FlSpot>?;
 
     return Card(
       elevation: 0, 
@@ -824,18 +905,18 @@ class _HistoryVisualizationScreenState
               child: Chip(
                 key: chipKey,
                 avatar: Icon(
-                  trendIcon,
+                  trendIconData,
                   size: 18,
-                  color: theme.colorScheme.onSurfaceVariant, 
+                  color: trendChipContentColor, // Use onContainer color
                 ),
                 label: Text('总体趋势: $trendText'),
-                backgroundColor: trendChipColor.withAlpha((255 * 0.6).round()),
-                labelStyle: theme.textTheme.labelLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-                padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 2.0),
+                backgroundColor: trendChipBackgroundColor, // Use full container color
+                labelStyle: theme.textTheme.labelLarge?.copyWith(color: trendChipContentColor), // Use onContainer color
+                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
                 side: BorderSide.none,
               ),
             ),
-            const Divider(height: 24, thickness: 0.5),
+            Divider(height: 24, thickness: 1.0, color: theme.colorScheme.outlineVariant), // Updated Divider
 
             _buildModernStatTile(
               context: context,
@@ -847,18 +928,20 @@ class _HistoryVisualizationScreenState
             _buildVisualStatTile(
               context: context,
               label: '平均值',
-              icon: Icons.analytics_outlined, 
+              icon: Icons.analytics_rounded, // Changed to rounded
               currentValue: _statistics!['average'] as double,
               minValue: _statistics!['min'] as double,
               maxValue: _statistics!['max'] as double,
               unit: sensorUnit,
-              warningThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh * 0.75 : 
-                                (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh * 0.9 : 
-                                (_selectedSensorIdentifier == '湿度' && settings.humidityThresholdHigh > 0) ? settings.humidityThresholdHigh * 0.9 : null,
-              errorThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh :
+              highWarningThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh * _noiseWarningFactor : 
+                                (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh * _tempHighWarningFactor : 
+                                (_selectedSensorIdentifier == '湿度' && settings.humidityThresholdHigh > 0) ? settings.humidityThresholdHigh * _humidityHighWarningFactor : null,
+              highErrorThreshold: (_selectedSensorIdentifier == '噪声') ? settings.noiseThresholdHigh :
                               (_selectedSensorIdentifier == '温度') ? settings.temperatureThresholdHigh :
                               (_selectedSensorIdentifier == '湿度' && settings.humidityThresholdHigh > 0) ? settings.humidityThresholdHigh : null,
-              lowerIsBetter: (_selectedSensorIdentifier == '温度' && (_statistics!['average'] as double) < settings.temperatureThresholdLow) ? true : false, 
+              lowWarningThreshold: (_selectedSensorIdentifier == '温度' && settings.temperatureThresholdLow != 0) ? settings.temperatureThresholdLow + _tempLowWarningOffset : null,
+              lowErrorThreshold: (_selectedSensorIdentifier == '温度' && settings.temperatureThresholdLow != 0) ? settings.temperatureThresholdLow : null,
+              sparklineSpots: avgSparklineSpots, 
             ),
 
             _buildVisualStatTile(
@@ -873,7 +956,7 @@ class _HistoryVisualizationScreenState
             
             _buildModernStatTile(
               context: context,
-              icon: Icons.arrow_upward_rounded,
+              icon: Icons.arrow_upward_rounded, // 保持
               label: '最大值',
               value: _formatStatValue(_statistics!['max']),
               unit: sensorUnit,
