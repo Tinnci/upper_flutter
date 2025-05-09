@@ -1645,47 +1645,73 @@ class _HistoryVisualizationScreenState
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: Padding(
         padding: const EdgeInsets.all(12.0),
-        child: Column( // Change Wrap to Column for better structure with quick filters
+        child: Column( 
           children: [
-            Wrap( // Keep original filters in a Wrap
+            // Sensor Selection Chips
+            Padding(
+              padding: const EdgeInsets.only(bottom: 12.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4.0, bottom: 8.0),
+                    child: Text(
+                      "选择传感器",
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  Wrap(
+                    spacing: 8.0,
+                    runSpacing: 8.0,
+                    alignment: WrapAlignment.start,
+                    children: _availableSensors.map((sensor) {
+                      final bool isSelected = _selectedSensorIdentifier == sensor;
+                      return ChoiceChip(
+                        label: Text(sensor),
+                        selected: isSelected,
+                        onSelected: (bool selected) {
+                          if (selected && _selectedSensorIdentifier != sensor) {
+                            setState(() {
+                              _selectedSensorIdentifier = sensor;
+                            });
+                            Provider.of<AppState>(context, listen: false).navigateTo(1, sensorIdentifier: sensor);
+                            _loadHistoricalData();
+                          }
+                        },
+                        selectedColor: Theme.of(context).colorScheme.primaryContainer,
+                        labelStyle: isSelected 
+                            ? Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onPrimaryContainer)
+                            : Theme.of(context).textTheme.labelLarge,
+                        side: isSelected 
+                            ? BorderSide.none 
+                            : BorderSide(color: Theme.of(context).colorScheme.outline),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16.0),
+                        ),
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                        showCheckmark: false, 
+                        elevation: isSelected ? 1 : 0,
+                        pressElevation: 2,
+                      );
+                    }).toList(),
+                  ),
+                ],
+              ),
+            ),
+            // Date and Time Filters
+            Wrap( 
               spacing: 12.0,
               runSpacing: 12.0,
               crossAxisAlignment: WrapCrossAlignment.center,
               alignment: isSmallScreen ? WrapAlignment.center : WrapAlignment.start,
               children: [
-                SizedBox(
-                  width: isSmallScreen ? double.infinity : 180,
-                  child: DropdownButtonFormField<String>(
-                    decoration: const InputDecoration(
-                      labelText: '传感器',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      contentPadding: EdgeInsets.symmetric(horizontal: 10, vertical: 12),
-                    ),
-                    value: _selectedSensorIdentifier,
-                    items: _availableSensors.map((String value) {
-                      return DropdownMenuItem<String>(
-                        value: value,
-                        child: Text(value, style: const TextStyle(fontSize: 14)),
-                      );
-                    }).toList(),
-                    onChanged: (String? newValue) {
-                      if (newValue != null && newValue != _selectedSensorIdentifier) {
-                        setState(() {
-                          _selectedSensorIdentifier = newValue;
-                        });
-                        // 当传感器改变时，也通知 AppState (如果 HomeScreen 的 AppBar 标题依赖这个)
-                        Provider.of<AppState>(context, listen: false).navigateTo(1, sensorIdentifier: newValue);
-                        _loadHistoricalData();
-                      }
-                    },
-                  ),
-                ),
                 ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: isSmallScreen ? double.infinity : 230),
                   child: TextField(
-                    controller: _startDateController,
-                    decoration: InputDecoration(
+                    controller: _startDateController, // Correct controller
+                    decoration: InputDecoration(      // Correct label
                       labelText: '起始时间',
                       hintText: '选择日期时间',
                       isDense: true,
@@ -1699,7 +1725,6 @@ class _HistoryVisualizationScreenState
                               icon: const Icon(Icons.clear, size: 18),
                               onPressed: () {
                                 _startDateController.clear();
-                                // 清除后可以考虑是否自动加载或提示用户
                               },
                               tooltip: '清除起始日期',
                             ),
@@ -1718,8 +1743,8 @@ class _HistoryVisualizationScreenState
                 ConstrainedBox(
                   constraints: BoxConstraints(maxWidth: isSmallScreen ? double.infinity : 230),
                   child: TextField(
-                    controller: _endDateController,
-                    decoration: InputDecoration(
+                    controller: _endDateController, // Correct controller
+                    decoration: InputDecoration(   // Correct label
                       labelText: '结束时间',
                       hintText: '选择日期时间',
                       isDense: true,
@@ -1757,7 +1782,7 @@ class _HistoryVisualizationScreenState
                   onPressed: _isLoading
                       ? null
                       : () {
-                          _setDefaultDateRange(); // 重置为默认（最近7天）
+                          _setDefaultDateRange(); 
                           _loadHistoricalData();
                         },
                   child: const Text('重置 (默认7天)'),
@@ -1773,7 +1798,7 @@ class _HistoryVisualizationScreenState
                 OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 1)), child: const Text('最近1小时')),
                 OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 6)), child: const Text('最近6小时')),
                 OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 1), startOfDay: true), child: const Text('今天')),
-                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 0)), child: const Text('昨天')), // days: 0 for "yesterday" logic
+                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 0)), child: const Text('昨天')), 
                 OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 7)), child: const Text('最近7天')),
                 OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 30)), child: const Text('最近30天')),
               ],
