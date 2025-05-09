@@ -1332,6 +1332,176 @@ class _HistoryVisualizationScreenState
 
   // --- END OF UPDATED STATISTICS PANEL AND HELPERS ---
 
+  // 新增方法：构建单个解读卡片
+  Widget _buildInterpretationCard(BuildContext context, String title, String text, IconData iconData, Color iconColor, {Color? cardColor}) {
+    final theme = Theme.of(context);
+    return Card(
+      elevation: 0,
+      // shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      color: cardColor ?? theme.colorScheme.surfaceContainerHighest, // 使用传入的卡片颜色或默认
+      margin: const EdgeInsets.only(bottom: 12.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(iconData, color: iconColor, size: 28),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title, style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurface)),
+                  const SizedBox(height: 4),
+                  Text(text, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // 新增方法：构建数据解读面板
+  Widget _buildDataInterpretationPanel(BuildContext context, Map<String, dynamic> statistics, AppSettings settings) {
+    final theme = Theme.of(context);
+    final interpretations = <Widget>[];
+    final appState = Provider.of<AppState>(context, listen: false); // Ensure AppState is available if needed for other settings
+
+    // 1. 噪声解读
+    final avgNoise = statistics['average'] as double?;
+    if (avgNoise != null && _selectedSensorIdentifier == '噪声') {
+      String noiseText;
+      Color highlightColor = theme.colorScheme.onSurfaceVariant;
+      IconData icon = Icons.check_circle_outline_rounded; // Using rounded icons
+
+      if (avgNoise > settings.noiseThresholdHigh) {
+        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，已超过 ${settings.noiseThresholdHigh.toStringAsFixed(1)} dB 的高阈值。长时间暴露可能损害听力，请注意防护。";
+        highlightColor = theme.colorScheme.error;
+        icon = Icons.warning_amber_rounded;
+      } else if (avgNoise > settings.noiseThresholdHigh * 0.8) { // 例如，超过阈值的80%作为提醒
+        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，接近高阈值 (${settings.noiseThresholdHigh.toStringAsFixed(1)} dB)。建议关注噪音变化。";
+        highlightColor = theme.colorScheme.tertiary; // Material 3 警示色
+        icon = Icons.info_outline_rounded;
+      } else {
+        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，低于高阈值。目前环境的噪音水平通常被认为是安全的。";
+      }
+      interpretations.add(_buildInterpretationCard(context, "听力健康提示", noiseText, icon, highlightColor));
+    }
+
+    // 2. 温度解读
+    final avgTemp = statistics['average'] as double?;
+    if (avgTemp != null && _selectedSensorIdentifier == '温度') {
+      String tempText;
+      IconData icon = Icons.thermostat_rounded;
+      Color cardColor = theme.colorScheme.surfaceContainerHighest; 
+
+      // Calculate average humidity from _historicalData for feels-like calculation
+      double? avgHumidityForFeelsLike;
+      if (_historicalData.isNotEmpty) {
+        final humidityValues = _historicalData.map((d) => d.humidity).where((h) => h.isFinite);
+        if (humidityValues.isNotEmpty) {
+          avgHumidityForFeelsLike = humidityValues.reduce((a, b) => a + b) / humidityValues.length;
+        }
+      }
+
+      String feelsLikeText = "";
+      if (avgHumidityForFeelsLike != null) {
+        final feelsLikeTemp = _calculateFeelsLikeTemperature(avgTemp, avgHumidityForFeelsLike);
+        if (feelsLikeTemp != null) {
+          feelsLikeText = "体感温度约 ${_formatStatValue(feelsLikeTemp)}°C。";
+          // Provide context if feels like temp is significantly different
+          if ((feelsLikeTemp - avgTemp).abs() > 2) { // If difference is more than 2 degrees
+            if (feelsLikeTemp > avgTemp) {
+              feelsLikeText += " (湿度较高，感觉更热)";
+            } else if (feelsLikeTemp < avgTemp && avgTemp > 10) { // Avoid saying "feels cooler" if it's already very cold
+              feelsLikeText += " (湿度较低，感觉略凉爽)";
+            }
+          }
+        }
+      }
+
+      if (avgTemp > settings.temperatureThresholdHigh) {
+        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，高于设定的 ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C 高温阈值，环境可能偏热。$feelsLikeText";
+        icon = Icons.local_fire_department_rounded;
+        cardColor = theme.colorScheme.errorContainer.withAlpha(77); // withOpacity(0.3)
+      } else if (avgTemp < settings.temperatureThresholdLow) {
+        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，低于设定的 ${settings.temperatureThresholdLow.toStringAsFixed(1)}°C 低温阈值，环境可能偏冷。$feelsLikeText";
+        icon = Icons.ac_unit_rounded;
+        cardColor = theme.colorScheme.primaryContainer.withAlpha(77); // withOpacity(0.3)
+      } else {
+        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，在您设定的舒适范围内 (${settings.temperatureThresholdLow.toStringAsFixed(1)}°C - ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C)。$feelsLikeText";
+      }
+      // If feelsLikeText is still empty but we wanted to show something, could add a default message.
+      // For instance, if avgHumidityForFeelsLike was null:
+      // if (feelsLikeText.isEmpty && avgHumidityForFeelsLike == null) { 
+      //   tempText += " (湿度数据不足无法计算体感温度)"; 
+      // }
+      interpretations.add(_buildInterpretationCard(context, "温度舒适度", tempText, icon, theme.colorScheme.primary, cardColor: cardColor));
+    }
+    
+    // 3. 湿度解读
+    final avgHumidity = statistics['average'] as double?;
+      if (avgHumidity != null && _selectedSensorIdentifier == '湿度') {
+      String humidityText;
+      IconData icon = Icons.water_drop_outlined;
+       Color cardColor = theme.colorScheme.surfaceContainerHighest;
+
+      if (avgHumidity > settings.humidityThresholdHigh) {
+          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，高于 ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 的高湿阈值，环境可能过于潮湿。";
+          icon = Icons.opacity_rounded; 
+          cardColor = theme.colorScheme.tertiaryContainer.withAlpha(77); // withOpacity(0.3)
+      } else if (avgHumidity < settings.humidityThresholdLow) {
+          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，低于 ${settings.humidityThresholdLow.toStringAsFixed(1)}% 的低湿阈值，环境可能过于干燥。";
+          icon = Icons.waves_rounded; 
+           cardColor = theme.colorScheme.secondaryContainer.withAlpha(77); // withOpacity(0.3)
+      } else {
+          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，在您设定的 ${settings.humidityThresholdLow.toStringAsFixed(1)}% - ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 舒适湿度范围内。";
+      }
+      interpretations.add(_buildInterpretationCard(context, "湿度状况", humidityText, icon, theme.colorScheme.tertiary, cardColor: cardColor));
+      }
+
+    // 4. 光照解读 (示例)
+    final avgLight = statistics['average'] as double?;
+    if (avgLight != null && _selectedSensorIdentifier == '光照') {
+        String lightText;
+        IconData icon = Icons.lightbulb_outline_rounded;
+        // 简单的光照范围示例 (lux值需要根据实际情况调整)
+        if (avgLight < 100) {
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，环境偏暗，可能不适宜长时间阅读或工作。";
+        } else if (avgLight < 300) {
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光线较为柔和，适合一般活动。";
+        } else if (avgLight < 750) {
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光照明亮，适合阅读和工作。";
+        } else {
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光照非常充足，甚至可能有些刺眼。";
+        }
+        interpretations.add(_buildInterpretationCard(context, "光照分析", lightText, icon, theme.colorScheme.secondary));
+    }
+
+
+    if (interpretations.isEmpty) {
+      return const SizedBox.shrink(); 
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8.0, top: 20.0), 
+          child: Text(
+            "智能解读",
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+        ),
+        ...interpretations, 
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     // 使用新的方法创建分段数据
@@ -1346,7 +1516,74 @@ class _HistoryVisualizationScreenState
     // Define a height for the chart container area
     const double chartContainerHeight = 300.0;
 
-    return SingleChildScrollView( // Wrap with SingleChildScrollView
+    // Get AppState for settings in interpretation panel
+    final appState = Provider.of<AppState>(context, listen: false);
+
+    Widget statisticsAndInterpretationSection;
+
+    // Determine what to show in the statistics area (skeleton, empty message, or actual panel)
+    Widget statisticsContent;
+    if (_isLoading && (_historicalData.isEmpty || _statistics == null)) {
+      statisticsContent = SizedBox(key: const ValueKey('hvs_stats_skeleton'), child: _buildStatisticsPanelSkeleton(context));
+    } else if (_historicalData.isEmpty || _statistics == null) {
+      statisticsContent = SizedBox(key: const ValueKey('hvs_stats_empty'));
+    } else {
+      // This Container will be the direct child of AnimatedSwitcher logic inside LayoutBuilder or directly if not wide
+      statisticsContent = _buildStatisticsPanel(context); 
+    }
+
+    // LayoutBuilder to decide between stacked or side-by-side view
+    statisticsAndInterpretationSection = LayoutBuilder(
+      builder: (context, constraints) {
+        const double wideScreenBreakpoint = 1050.0; // Breakpoint for side-by-side view
+        bool isWideScreen = constraints.maxWidth > wideScreenBreakpoint;
+
+        Widget animatedStatsContent = AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(opacity: animation, child: SizeTransition(sizeFactor: animation, child: child));
+            },
+            // Key for the content itself, to ensure AnimatedSwitcher animates changes between skeleton/empty/panel
+            child: Container(
+              key: ValueKey('stats_content_${_isLoading}_${_historicalData.hashCode}_${_statistics.hashCode}'), 
+              child: statisticsContent
+            ),
+        );
+
+        if (isWideScreen && !_isLoading && _statistics != null) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Flexible(
+                flex: 5, // Adjust flex factor for stats panel width
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 600), // Max width for stats panel
+                    child: animatedStatsContent,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              Flexible(
+                flex: 4, // Adjust flex factor for interpretation panel width
+                child: _buildDataInterpretationPanel(context, _statistics!, appState.settings),
+              ),
+            ],
+          );
+        } else {
+          // Narrow screen or still loading: only show statistics panel, centered and constrained
+          return Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 700),
+              child: animatedStatsContent,
+            ),
+          );
+        }
+      },
+    );
+
+
+    return SingleChildScrollView( 
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -1363,33 +1600,17 @@ class _HistoryVisualizationScreenState
                 child: Padding(
                   padding: const EdgeInsets.all(8.0),
                   child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300), // Adjusted duration for quicker feedback
+                    duration: const Duration(milliseconds: 300), 
                     transitionBuilder: (Widget child, Animation<double> animation) {
                       return FadeTransition(opacity: animation, child: child);
                     },
-                    // The child of AnimatedSwitcher must be a single widget.
-                    // The conditional logic determines which widget (with a unique key) is displayed.
                     child: _buildAnimatedChartContent(context, segmentedSpots, sensorColor, chartDisplayTitle),
                   ),
                 ),
               ),
             ),
-            // Wrap the statistics panel with AnimatedSwitcher
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 300), // Adjusted duration
-              transitionBuilder: (Widget child, Animation<double> animation) {
-                // Using FadeTransition and SizeTransition for a smoother appearance/disappearance
-                return FadeTransition(opacity: animation, child: SizeTransition(sizeFactor: animation, child: child));
-              },
-              child: (_isLoading && (_historicalData.isEmpty || _statistics == null)) // Condition for showing skeleton
-                  ? SizedBox(key: const ValueKey('hvs_stats_skeleton'), child: _buildStatisticsPanelSkeleton(context))
-                  : (_historicalData.isEmpty || _statistics == null) // Condition for showing empty or actual panel
-                      ? SizedBox(key: const ValueKey('hvs_stats_empty'))
-                      : Container( 
-                          key: ValueKey('hvs_stats_panel_${_selectedSensorIdentifier}_${_statistics.hashCode}_${_isLoadingPreviousPeriodData.toString()}'),
-                          child: _buildStatisticsPanel(context),
-                        ),
-            ),
+            // Use the new section that includes LayoutBuilder
+            statisticsAndInterpretationSection,
           ],
         ),
       ),
@@ -1648,5 +1869,55 @@ class _HistoryVisualizationScreenState
         onChartTapped: _clearChartHighlight, // 新增：传递回调
       );
     }
+  }
+
+  // --- 新增：体感温度计算方法 ---
+  double? _calculateFeelsLikeTemperature(double tempC, double rhPercent) {
+    if (rhPercent < 0 || rhPercent > 100) return null; // Invalid humidity
+
+    // Heat Index Formula (approximation, converted for Celsius inputs)
+    // This formula is generally more accurate for T > 26.7°C (80°F) and RH > 40%
+    // For other conditions, it might be less representative or an adjustment is needed.
+
+    double t = (tempC * 9/5) + 32; // Convert Celsius to Fahrenheit
+    double rh = rhPercent;
+
+    // Simplified NWS Heat Index formula (output in Fahrenheit)
+    double hiF = 0.5 * (t + 61.0 + ((t - 68.0) * 1.2) + (rh * 0.094));
+
+    if (hiF >= 80.0) { // If Heat Index is 80F or more, use full Rothfusz regression
+        hiF = -42.379 + 
+              2.04901523 * t + 
+              10.14333127 * rh + 
+              -0.22475541 * t * rh + 
+              -0.00683783 * t * t + 
+              -0.05481717 * rh * rh + 
+              0.00122874 * t * t * rh + 
+              0.00085282 * t * rh * rh + 
+              -0.00000199 * t * t * rh * rh;
+
+        if (rh < 13 && t >= 80 && t <= 112) {
+            double adjustment = ((13 - rh) / 4) * math.sqrt((17 - (t - 95.0).abs()) / 17);
+            hiF -= adjustment;
+        }
+        if (rh > 85 && t >= 80 && t <= 87) {
+            double adjustment = ((rh - 85) / 10) * ((87 - t) / 5);
+            hiF += adjustment;
+        }
+    } // else, for hiF < 80F, the simplified formula result (hiF) is used or just the actual temp
+      // For simplicity here, we'll proceed with hiF calculation and convert back if it was complex one.
+      // If the initial simplified hiF was low, it might not be very different from actual temp.
+
+    // Convert back to Celsius
+    double hiC = (hiF - 32) * 5/9;
+
+    // Basic check: if calculated feels like is much lower than actual (e.g. due to formula limits in cool, dry conditions),
+    // it might be better to return something closer to actual temperature or the actual temperature itself.
+    // For this implementation, we will return the calculated value, but note its applicability range.
+    if (tempC < 20 && hiC < tempC) { // If it's cool and feels like is even cooler (without wind), it might be less intuitive.
+        // Potentially return tempC or a slight adjustment. For now, return calculated. 
+    }
+
+    return hiC;
   }
 } 
