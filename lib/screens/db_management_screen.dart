@@ -454,59 +454,62 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
 
   Widget _buildDataTable() {
     final textTheme = Theme.of(context).textTheme;
-    // Use PaginatedDataTable for better handling of large datasets
+    final colorScheme = Theme.of(context).colorScheme; // 获取 ColorScheme
+
+    // 定义列标题的统一样式
+    final TextStyle columnHeaderStyle = textTheme.titleSmall ?? const TextStyle(fontWeight: FontWeight.bold);
+    
+    // 定义数据单元格的默认样式
+    final TextStyle defaultCellStyle = textTheme.bodyMedium ?? const TextStyle();
+    // 为 ID 列定义一个稍微不那么强调的样式
+    final TextStyle idCellStyle = textTheme.bodySmall?.copyWith(color: colorScheme.outline) ?? defaultCellStyle;
+
     return PaginatedDataTable(
-       // header: const Text('传感器数据记录'), // Optional header
-       rowsPerPage: 15, // Adjust number of rows per page
-       showCheckboxColumn: false, // Don't need checkboxes usually
-       // --- 添加排序相关属性 ---
+       rowsPerPage: 15, 
+       showCheckboxColumn: false, 
        sortColumnIndex: _sortColumnIndex,
        sortAscending: _sortAscending,
-       // --- 结束添加 ---
-       columns: [ // Define columns explicitly
-         // --- 修正 DataColumn 的 onSort 调用，使用正确的类型 ---
+       columns: [ 
          DataColumn(
-           label: const Text('ID'), 
+           label: Text('ID', style: columnHeaderStyle), 
            numeric: true,
-           // ID 是 num? (int?), 它是 Comparable?
            onSort: (columnIndex, ascending) => _sortData<num?>((d) => d.id, columnIndex, ascending),
          ),
          DataColumn(
-           label: const Text('时间戳'),
-           // DateTime 是 Comparable
+           label: Text('时间戳', style: columnHeaderStyle),
            onSort: (columnIndex, ascending) => _sortData<DateTime>((d) => d.timestamp, columnIndex, ascending),
          ),
          DataColumn(
-           label: Text('噪声(${ '\u{dB}' })'), 
+           label: Text('噪声(${ '\u{dB}' })', style: columnHeaderStyle), 
            numeric: true,
-           // double 是 Comparable
            onSort: (columnIndex, ascending) => _sortData<double>((d) => d.noiseDb, columnIndex, ascending),
-         ), // Use dB symbol
+         ), 
          DataColumn(
-           label: Text('温度(${ '\u{00B0}' }C)'), 
+           label: Text('温度(${ '\u{00B0}' }C)', style: columnHeaderStyle), 
            numeric: true,
-           // double 是 Comparable
            onSort: (columnIndex, ascending) => _sortData<double>((d) => d.temperature, columnIndex, ascending),
-         ), // Use degree symbol
+         ), 
          DataColumn(
-           label: Text('湿度(%)'), 
+           label: Text('湿度(%)', style: columnHeaderStyle), 
            numeric: true,
-           // double 是 Comparable
            onSort: (columnIndex, ascending) => _sortData<double>((d) => d.humidity, columnIndex, ascending),
          ),
          DataColumn(
-           label: Text('光照(lx)'), 
+           label: Text('光照(lx)', style: columnHeaderStyle), 
            numeric: true,
-           // double 是 Comparable
            onSort: (columnIndex, ascending) => _sortData<double>((d) => d.lightIntensity, columnIndex, ascending),
-         ), // Use lx symbol
-         // --- 结束修改 ---
+         ), 
        ],
-       source: _SensorDataSource(data: _data, dateFormat: _dateFormat, context: context),
-       columnSpacing: 20, // Adjust spacing
-       // horizontalMargin: 10,
-       dataRowMinHeight: kMinInteractiveDimension, // Use Material default min height
-       dataRowMaxHeight: kMinInteractiveDimension + 8, // Allow slightly more height
+       source: _SensorDataSource(
+          data: _data, 
+          dateFormat: _dateFormat, 
+          context: context,
+          defaultCellStyle: defaultCellStyle, // 传递默认样式
+          idCellStyle: idCellStyle,         // 传递ID样式
+        ),
+       columnSpacing: 20, 
+       dataRowMinHeight: kMinInteractiveDimension, 
+       dataRowMaxHeight: kMinInteractiveDimension + 8, 
     );
   }
 }
@@ -515,9 +518,18 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
 class _SensorDataSource extends DataTableSource {
   final List<SensorData> data;
   final DateFormat dateFormat;
-  final BuildContext context; // Needed for theme access
+  final BuildContext context; 
+  final TextStyle defaultCellStyle; // 接收默认样式
+  final TextStyle idCellStyle;      // 接收ID样式
 
-  _SensorDataSource({required this.data, required this.dateFormat, required this.context});
+
+  _SensorDataSource({
+    required this.data, 
+    required this.dateFormat, 
+    required this.context,
+    required this.defaultCellStyle,
+    required this.idCellStyle,
+  });
 
   @override
   DataRow? getRow(int index) {
@@ -525,16 +537,36 @@ class _SensorDataSource extends DataTableSource {
       return null;
     }
     final item = data[index];
-    final textStyle = Theme.of(context).textTheme.bodyMedium; // Use theme text style
+    final colorScheme = Theme.of(context).colorScheme; // 获取 ColorScheme
+
+    // 定义奇偶行颜色
+    final Color evenRowColor = colorScheme.surface; // 或者 colorScheme.background
+    // 为了微妙的差异，可以使用 surfaceTint 以极低透明度叠加，或者直接用 surfaceContainerLowest
+    // final Color oddRowColor = colorScheme.surfaceTint.withOpacity(0.02); // 示例1: 使用 surfaceTint
+    final Color oddRowColor = colorScheme.surfaceContainerLowest; // 示例2: 使用 surfaceContainerLowest (M3推荐)
+
+    // 如果希望差异更小，可以像这样：
+    // final Color oddRowColor = Color.alphaBlend(colorScheme.onSurface.withOpacity(0.01), evenRowColor);
+
 
     return DataRow(
+      // 根据行索引设置颜色
+      color: MaterialStateProperty.resolveWith<Color?>(
+        (Set<MaterialState> states) {
+          // 这里我们不关心 MaterialState，只根据行索引
+          if (index.isEven) {
+            return evenRowColor; // 偶数行颜色
+          }
+          return oddRowColor; // 奇数行颜色
+        },
+      ),
       cells: [
-        DataCell(Text(item.id?.toString() ?? '', style: textStyle)),
-        DataCell(Text(dateFormat.format(item.timestamp), style: textStyle)),
-        DataCell(Text(item.noiseDb.toStringAsFixed(1), style: textStyle)),
-        DataCell(Text(item.temperature.toStringAsFixed(1), style: textStyle)),
-        DataCell(Text(item.humidity.toStringAsFixed(1), style: textStyle)),
-        DataCell(Text(item.lightIntensity.toStringAsFixed(1), style: textStyle)),
+        DataCell(Text(item.id?.toString() ?? '', style: idCellStyle)),
+        DataCell(Text(dateFormat.format(item.timestamp), style: defaultCellStyle)),
+        DataCell(Text(item.noiseDb.toStringAsFixed(1), style: defaultCellStyle)),
+        DataCell(Text(item.temperature.toStringAsFixed(1), style: defaultCellStyle)),
+        DataCell(Text(item.humidity.toStringAsFixed(1), style: defaultCellStyle)),
+        DataCell(Text(item.lightIntensity.toStringAsFixed(1), style: defaultCellStyle)),
       ],
     );
   }
