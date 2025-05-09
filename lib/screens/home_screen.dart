@@ -141,7 +141,14 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         middle: Text(appBarTitle), // 使用动态标题
         trailing: Padding( // Add padding for iOS trailing widget
            padding: const EdgeInsets.only(right: 8.0),
-           child: statusIndicator,
+           // Wrap the Row with AnimatedSwitcher
+           child: AnimatedSwitcher(
+             duration: const Duration(milliseconds: 300),
+             transitionBuilder: (Widget child, Animation<double> animation) {
+               return FadeTransition(opacity: animation, child: child);
+             },
+             child: statusIndicator, // Use a Key if the direct child of AnimatedSwitcher changes identity
+           ),
         ),
       );
     } else {
@@ -152,7 +159,28 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
-            child: statusIndicator,
+            // Wrap the Row with AnimatedSwitcher
+            child: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(opacity: animation, child: child);
+              },
+              // Add a Key to the statusIndicator Row to ensure AnimatedSwitcher detects changes
+              // when the underlying connection states change, forcing a rebuild of the Row.
+              // The key can be based on the connection states.
+              child: Row(
+                key: ValueKey<String>('status_${appState.isTcpConnected}_${appState.isConnectingTcp}_${appState.isBleConnected}_${appState.isConnectingBle}'),
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  buildStatusChip("TCP", appState.isTcpConnected, appState.isConnectingTcp),
+                  const SizedBox(width: 6),
+                  if (Platform.isAndroid || Platform.isIOS || Platform.isWindows) ...[
+                    buildStatusChip("BLE", appState.isBleConnected, appState.isConnectingBle),
+                  ],
+                  const SizedBox(width: 8),
+                ],
+              ),
+            ),
           ),
           const SizedBox(width: 8),
         ],
@@ -171,6 +199,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     Color? color, // Primarily for filled/elevated danger state
     bool isLoading = false,
     bool enabled = true,
+    Key? key, // Add Key parameter
   }) {
     Widget buttonContent = Row(
       mainAxisSize: MainAxisSize.min,
@@ -186,6 +215,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     if (Platform.isIOS) {
       // Use CupertinoButton, maybe style differently based on 'type' if needed
       return CupertinoButton(
+        key: key, // Apply key
         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 10.0),
         color: type == 'filled' ? (color ?? CupertinoTheme.of(context).primaryColor) : null, // Color only for filled
         onPressed: enabled ? onPressed : null,
@@ -196,6 +226,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       switch (type) {
         case 'filled':
           return FilledButton.icon(
+            key: key, // Apply key
             onPressed: enabled ? onPressed : null,
             icon: isLoading ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Theme.of(context).colorScheme.onPrimary)) : Icon(icon, size: 18),
             label: Text(label),
@@ -203,18 +234,21 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           );
         case 'tonal':
            return FilledButton.tonalIcon(
+             key: key, // Apply key
              onPressed: enabled ? onPressed : null,
              icon: isLoading ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(icon, size: 18),
              label: Text(label),
            );
         case 'outlined':
            return OutlinedButton.icon(
+             key: key, // Apply key
              onPressed: enabled ? onPressed : null,
              icon: isLoading ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(icon, size: 18),
              label: Text(label),
            );
         case 'text':
            return TextButton.icon(
+             key: key, // Apply key
              onPressed: enabled ? onPressed : null,
              icon: isLoading ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(icon, size: 18),
              label: Text(label),
@@ -222,6 +256,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         case 'elevated': // Default fallback
         default:
           return ElevatedButton.icon(
+            key: key, // Apply key
             onPressed: enabled ? onPressed : null,
             icon: isLoading ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : Icon(icon, size: 18),
             label: Text(label),
@@ -489,15 +524,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
          enabled: !isBusy && !appState.isTcpConnected, // Disable if busy or connected
          type: 'tonal',
        ),
-       _buildAdaptiveButton(
-         label: appState.isTcpConnected ? '断开TCP' : '连接TCP',
-         icon: appState.isTcpConnected ? Icons.link_off : Icons.link,
-         onPressed: () => appState.toggleTcpConnection(),
-         isLoading: appState.isConnectingTcp,
-         enabled: !isBusy, // Disable only if busy
-         type: 'filled',
-         color: appState.isTcpConnected ? Theme.of(context).colorScheme.error : null,
-       ),
+       // Wrap the TCP connect/disconnect button with AnimatedSwitcher
+       AnimatedSwitcher(
+          duration: const Duration(milliseconds: 300),
+          transitionBuilder: (Widget child, Animation<double> animation) {
+            return FadeTransition(
+              opacity: animation,
+              child: ScaleTransition(scale: animation, child: child),
+            );
+          },
+          child: _buildAdaptiveButton( // Use ValueKey to help AnimatedSwitcher identify changes
+            key: ValueKey<String>('tcp_button_${appState.isTcpConnected}_${appState.isConnectingTcp}'),
+            label: appState.isTcpConnected ? '断开TCP' : '连接TCP',
+            icon: appState.isTcpConnected ? Icons.link_off : Icons.link,
+            onPressed: () => appState.toggleTcpConnection(),
+            isLoading: appState.isConnectingTcp,
+            enabled: !isBusy, // Disable only if busy
+            type: 'filled',
+            color: appState.isTcpConnected ? Theme.of(context).colorScheme.error : null,
+          ),
+        ),
     ];
 
     List<Widget> bleControlItems = [];
@@ -533,16 +579,26 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                  ),
                ),
-            _buildAdaptiveButton(
-              label: appState.isBleConnected ? '断开BLE' : '连接BLE',
-              icon: appState.isBleConnected ? Icons.bluetooth_disabled : Icons.bluetooth_connected,
-              onPressed: () => appState.toggleBleConnection(),
-              isLoading: appState.isConnectingBle,
-               // Disable connect if busy or no device selected (and not already connected)
-              enabled: !isBusy && (appState.selectedDeviceId != null || appState.isBleConnected),
-              type: 'filled', // Use primary color for connect
-              color: appState.isBleConnected ? Theme.of(context).colorScheme.error : null,
-            ),
+            // Wrap the BLE connect/disconnect button with AnimatedSwitcher
+            AnimatedSwitcher(
+               duration: const Duration(milliseconds: 300),
+               transitionBuilder: (Widget child, Animation<double> animation) {
+                 return FadeTransition(
+                   opacity: animation,
+                   child: ScaleTransition(scale: animation, child: child),
+                 );
+               },
+               child: _buildAdaptiveButton( // Use ValueKey for BLE button as well
+                 key: ValueKey<String>('ble_button_${appState.isBleConnected}_${appState.isConnectingBle}'),
+                 label: appState.isBleConnected ? '断开BLE' : '连接BLE',
+                 icon: appState.isBleConnected ? Icons.bluetooth_disabled : Icons.bluetooth_connected,
+                 onPressed: () => appState.toggleBleConnection(),
+                 isLoading: appState.isConnectingBle,
+                 enabled: !isBusy && (appState.selectedDeviceId != null || appState.isBleConnected),
+                 type: 'filled',
+                 color: appState.isBleConnected ? Theme.of(context).colorScheme.error : null,
+               ),
+             ),
         ];
     }
 
@@ -809,20 +865,56 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       return Card(
         elevation: 1,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-        child: Container( // Use container for fixed height placeholder
-           height: 250, // Match chart height
-           padding: const EdgeInsets.all(16.0),
-           child: Center(
-             child: Column(
-               mainAxisAlignment: MainAxisAlignment.center,
-               children: [
-                 Icon(Icons.insert_chart_outlined, size: 48, color: colorScheme.outline),
-                 const SizedBox(height: 16),
-                 Text('等待数据以显示图表...', style: TextStyle(color: colorScheme.outline)),
-               ],
-             ),
-           ),
-         ),
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('最近 60 秒历史数据', style: Theme.of(context).textTheme.titleMedium),
+              const Divider(height: 12),
+              const SizedBox(height: 8),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  int crossAxisCount;
+                  if (constraints.maxWidth < 600) {
+                    crossAxisCount = 1;
+                  } else if (constraints.maxWidth < 1100) {
+                    crossAxisCount = 2;
+                  } else {
+                    crossAxisCount = 4;
+                  }
+                  double chartHeight = (crossAxisCount <= 2) ? 200 : 260;
+                  double mainAxisSpacing = 12.0;
+                  // Show 4 skeleton cards by default, or fewer if crossAxisCount is 1
+                  int skeletonCount = crossAxisCount == 1 ? 2 : 4;
+                  int rowCount = (skeletonCount / crossAxisCount).ceil();
+                  double totalHeight = (chartHeight * rowCount) + (mainAxisSpacing * (rowCount - 1).clamp(0, double.infinity));
+                  if (rowCount == 0) totalHeight = 0;
+
+                  return SizedBox(
+                    height: totalHeight,
+                    child: GridView.builder(
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: crossAxisCount,
+                        crossAxisSpacing: 12.0,
+                        mainAxisSpacing: mainAxisSpacing,
+                        childAspectRatio: crossAxisCount == 1
+                            ? (constraints.maxWidth / chartHeight) * 0.9
+                            : ((constraints.maxWidth - (crossAxisCount - 1) * 12) / crossAxisCount) / chartHeight * 1.1,
+                      ),
+                      itemCount: skeletonCount, // Number of skeleton cards to show
+                      itemBuilder: (context, index) => SizedBox(
+                        height: chartHeight,
+                        child: _buildChartCardSkeleton(context),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
       );
     }
 
@@ -963,6 +1055,44 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         return FlSpot(x, 0);
       }
     }).toList();
+  }
+
+  // --- 新增：图表卡片的骨架屏 Widget ---
+  Widget _buildChartCardSkeleton(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 16.0, right: 16.0, bottom: 8.0, left: 8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Container(
+                  width: 100,
+                  height: 16,
+                  color: colorScheme.onSurface.withAlpha(26),
+                ),
+                Icon(Icons.history, size: 20, color: colorScheme.onSurface.withAlpha(26)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: Container(
+                decoration: BoxDecoration(
+                  color: colorScheme.onSurface.withAlpha(13),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                // Możesz dodać tutaj animację Shimmer, jeśli chcesz
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

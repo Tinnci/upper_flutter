@@ -551,8 +551,8 @@ class _SensorDataSource extends DataTableSource {
 
     return DataRow(
       // 根据行索引设置颜色
-      color: MaterialStateProperty.resolveWith<Color?>(
-        (Set<MaterialState> states) {
+      color: WidgetStateProperty.resolveWith<Color?>(
+        (Set<WidgetState> states) {
           // 这里我们不关心 MaterialState，只根据行索引
           if (index.isEven) {
             return evenRowColor; // 偶数行颜色

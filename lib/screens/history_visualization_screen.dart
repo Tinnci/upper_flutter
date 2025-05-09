@@ -1242,6 +1242,94 @@ class _HistoryVisualizationScreenState
     );
   }
 
+  // --- 新增：统计面板的骨架屏 Widget ---
+  Widget _buildStatisticsPanelSkeleton(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    Widget buildSkeletonTile() {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10.0, horizontal: 4.0),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Container(width: 26, height: 26, color: colorScheme.onSurface.withAlpha(26)),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(width: 80, height: 14, color: colorScheme.onSurface.withAlpha(26)),
+                  const SizedBox(height: 4),
+                  Container(width: 60, height: 10, color: colorScheme.onSurface.withAlpha(26)),
+                ],
+              ),
+            ),
+            Container(width: 50, height: 20, color: colorScheme.onSurface.withAlpha(26)),
+          ],
+        ),
+      );
+    }
+
+    Widget buildVisualSkeletonTile() {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Container(width: 22, height: 22, color: colorScheme.onSurface.withAlpha(26)),
+                const SizedBox(width: 8),
+                Container(width: 100, height: 16, color: colorScheme.onSurface.withAlpha(26)),
+                const Spacer(),
+                Container(width: 80, height: 30, color: colorScheme.onSurface.withAlpha(13)),
+                const SizedBox(width: 8),
+                Container(width: 40, height: 20, color: colorScheme.onSurface.withAlpha(26)),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Container(width: 40, height: 10, color: colorScheme.onSurface.withAlpha(26)),
+                const SizedBox(width: 8),
+                Expanded(child: Container(height: 8, decoration: BoxDecoration(color: colorScheme.onSurface.withAlpha(13), borderRadius: BorderRadius.circular(4)))),
+                const SizedBox(width: 8),
+                Container(width: 40, height: 10, color: colorScheme.onSurface.withAlpha(26)),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Container(width: MediaQuery.of(context).size.width * 0.6, height: 12, color: colorScheme.onSurface.withAlpha(26)),
+          ],
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16.0)),
+      color: theme.colorScheme.surfaceContainerHighest,
+      margin: const EdgeInsets.only(top: 20.0, bottom: 8.0),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(width: 200, height: 24, color: colorScheme.onSurface.withAlpha(38)), // Replaced withOpacity(0.15) - Title placeholder
+            const SizedBox(height: 8),
+            Container(width: 120, height: 30, decoration: BoxDecoration(color: colorScheme.onSurface.withAlpha(26), borderRadius: BorderRadius.circular(16))), // Replaced withOpacity(0.1) - Chip placeholder
+            Divider(height: 24, thickness: 1.0, color: theme.colorScheme.outlineVariant.withAlpha(26)), // Replaced withOpacity(0.1)
+            buildSkeletonTile(),       // Data points count
+            buildVisualSkeletonTile(), // Average
+            buildVisualSkeletonTile(), // Median
+            buildSkeletonTile(),       // Max
+            buildSkeletonTile(),       // Min
+          ],
+        ),
+      ),
+    );
+  }
+
   // --- END OF UPDATED STATISTICS PANEL AND HELPERS ---
 
   @override
@@ -1274,52 +1362,34 @@ class _HistoryVisualizationScreenState
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
                 child: Padding(
                   padding: const EdgeInsets.all(8.0),
-                  child: _isLoading
-                      ? const Center(child: CircularProgressIndicator())
-                      : _errorMessage != null
-                          ? _buildErrorState(context, _errorMessage!)
-                          : (_selectedSensorIdentifier == null) 
-                              ? _buildMessageState(context, '请选择一个传感器', Icons.touch_app_outlined, details: '从上方的下拉菜单中选择一个传感器以查看其历史数据。')
-                              : _historicalData.isEmpty
-                                  ? _buildMessageState(context, '无历史数据', Icons.sentiment_dissatisfied_outlined, details: '选定的传感器在指定的时间范围内没有数据记录。\n请尝试更改日期范围或选择其他传感器。')
-                                  : (_minX == null || _maxX == null)
-                                      ? _buildMessageState(context, '无法确定图表范围', Icons.error_outline, details: '数据有效，但无法确定有效的图表显示范围。请尝试调整时间。')
-                                      : SingleChartCard( 
-                                          title: chartDisplayTitle,
-                                          segmentedSpots: segmentedSpots, 
-                                          color: sensorColor,
-                                          minX: _minX!,
-                                          maxX: _maxX!,
-                                          sensorIdentifier: _selectedSensorIdentifier!,
-                                          xAxisLabelFormatter: (value, timestamp) {
-                                            final xSpanMillis = (_maxX! - _minX!);
-                                            if (xSpanMillis <= 0) return DateFormat('HH:mm:ss').format(timestamp);
-                                            
-                                            final xSpanDays = xSpanMillis / (1000 * 60 * 60 * 24);
-
-                                            if (xSpanDays <= 0.000694) { // less than 1 minute
-                                               return DateFormat('HH:mm:ss').format(timestamp);
-                                            } else if (xSpanDays <= 0.2) { // less than ~5 hours
-                                              return DateFormat('HH:mm').format(timestamp);
-                                            } else if (xSpanDays <= 2) { // less than 2 days
-                                              return DateFormat('dd HH:mm').format(timestamp);
-                                            } else if (xSpanDays <= 30) { // less than 30 days
-                                               return DateFormat('MM-dd HH:mm').format(timestamp);
-                                            }
-                                            else { // more than 30 days
-                                              return DateFormat('yy-MM-dd').format(timestamp);
-                                            }
-                                          },
-                                          highlightedXValue: _highlightedTimestamp?.millisecondsSinceEpoch.toDouble(),
-                                          highlightedValueType: _highlightedSensorValueType,
-                                          onChartTapped: _clearChartHighlight, // 新增：传递回调
-                                        ),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 300), // Adjusted duration for quicker feedback
+                    transitionBuilder: (Widget child, Animation<double> animation) {
+                      return FadeTransition(opacity: animation, child: child);
+                    },
+                    // The child of AnimatedSwitcher must be a single widget.
+                    // The conditional logic determines which widget (with a unique key) is displayed.
+                    child: _buildAnimatedChartContent(context, segmentedSpots, sensorColor, chartDisplayTitle),
+                  ),
                 ),
               ),
             ),
-            // 新增：显示统计面板
-            if (!_isLoading && _historicalData.isNotEmpty && _statistics != null)
-              _buildStatisticsPanel(context),
+            // Wrap the statistics panel with AnimatedSwitcher
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300), // Adjusted duration
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                // Using FadeTransition and SizeTransition for a smoother appearance/disappearance
+                return FadeTransition(opacity: animation, child: SizeTransition(sizeFactor: animation, child: child));
+              },
+              child: (_isLoading && (_historicalData.isEmpty || _statistics == null)) // Condition for showing skeleton
+                  ? SizedBox(key: const ValueKey('hvs_stats_skeleton'), child: _buildStatisticsPanelSkeleton(context))
+                  : (_historicalData.isEmpty || _statistics == null) // Condition for showing empty or actual panel
+                      ? SizedBox(key: const ValueKey('hvs_stats_empty'))
+                      : Container( 
+                          key: ValueKey('hvs_stats_panel_${_selectedSensorIdentifier}_${_statistics.hashCode}_${_isLoadingPreviousPeriodData.toString()}'),
+                          child: _buildStatisticsPanel(context),
+                        ),
+            ),
           ],
         ),
       ),
@@ -1491,5 +1561,92 @@ class _HistoryVisualizationScreenState
         ),
       ),
     );
+  }
+
+  // --- 新增：图表区域的骨架屏 Widget ---
+  Widget _buildChartAreaSkeleton(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    // Mimic the structure of the chart card area
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      child: Padding(
+        padding: const EdgeInsets.all(8.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Title placeholder
+            Padding(
+              padding: const EdgeInsets.only(left: 8.0, top: 8.0, bottom: 4.0),
+              child: Container(
+                width: MediaQuery.of(context).size.width * 0.5, // Approx 50% width for title
+                height: 20,
+                color: colorScheme.onSurface.withOpacity(0.1),
+              ),
+            ),
+            const Divider(),
+            // Chart content placeholder
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: colorScheme.onSurface.withOpacity(0.05),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAnimatedChartContent(BuildContext context, List<List<FlSpot>> segmentedSpots, Color sensorColor, String chartDisplayTitle) {
+    if (_isLoading) {
+      // Use Key for the skeleton widget as well for AnimatedSwitcher
+      return SizedBox(key: const ValueKey('hvs_chart_skeleton'), child: _buildChartAreaSkeleton(context));
+    } else if (_errorMessage != null) {
+      return Container(key: ValueKey('hvs_error_$_errorMessage'), child: _buildErrorState(context, _errorMessage!));
+    } else if (_selectedSensorIdentifier == null) {
+      return Container(key: const ValueKey('hvs_no_sensor_selected'), child: _buildMessageState(context, '请选择一个传感器', Icons.touch_app_outlined, details: '从上方的下拉菜单中选择一个传感器以查看其历史数据。'));
+    } else if (_historicalData.isEmpty) {
+      return Container(key: const ValueKey('hvs_no_data'), child: _buildMessageState(context, '无历史数据', Icons.sentiment_dissatisfied_outlined, details: '选定的传感器在指定的时间范围内没有数据记录。\n请尝试更改日期范围或选择其他传感器。'));
+    } else if (_minX == null || _maxX == null) {
+      return Container(key: const ValueKey('hvs_no_range'), child: _buildMessageState(context, '无法确定图表范围', Icons.error_outline, details: '数据有效，但无法确定有效的图表显示范围。请尝试调整时间。'));
+    } else {
+      return SingleChartCard(
+        key: ValueKey('hvs_chart_card_${_selectedSensorIdentifier}_${_historicalData.hashCode}_${_minX}_$_maxX'),
+        title: chartDisplayTitle,
+        segmentedSpots: segmentedSpots,
+        color: sensorColor,
+        minX: _minX!,
+        maxX: _maxX!,
+        sensorIdentifier: _selectedSensorIdentifier!,
+        xAxisLabelFormatter: (value, timestamp) {
+          final xSpanMillis = (_maxX! - _minX!);
+          if (xSpanMillis <= 0) return DateFormat('HH:mm:ss').format(timestamp);
+          
+          final xSpanDays = xSpanMillis / (1000 * 60 * 60 * 24);
+
+          if (xSpanDays <= 0.000694) { // less than 1 minute
+             return DateFormat('HH:mm:ss').format(timestamp);
+          } else if (xSpanDays <= 0.2) { // less than ~5 hours
+            return DateFormat('HH:mm').format(timestamp);
+          } else if (xSpanDays <= 2) { // less than 2 days
+            return DateFormat('dd HH:mm').format(timestamp);
+          } else if (xSpanDays <= 30) { // less than 30 days
+             return DateFormat('MM-dd HH:mm').format(timestamp);
+          }
+          else { // more than 30 days
+            return DateFormat('yy-MM-dd').format(timestamp);
+          }
+        },
+        highlightedXValue: _highlightedTimestamp?.millisecondsSinceEpoch.toDouble(),
+        highlightedValueType: _highlightedSensorValueType,
+        onChartTapped: _clearChartHighlight, // 新增：传递回调
+      );
+    }
   }
 } 
