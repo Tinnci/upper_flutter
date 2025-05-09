@@ -1454,6 +1454,9 @@ class _HistoryVisualizationScreenState
     final interpretations = <Widget>[];
     final appState = Provider.of<AppState>(context, listen: false); // Ensure AppState is available if needed for other settings
 
+    // 获取前期平均值 (如果存在)
+    final double? previousPeriodAvg = _previousPeriodStatistics?['average'] as double?;
+
     // 1. 噪声解读
     final avgNoise = statistics['average'] as double?;
     if (avgNoise != null && _selectedSensorIdentifier == '噪声') {
@@ -1461,16 +1464,24 @@ class _HistoryVisualizationScreenState
       Color highlightColor = theme.colorScheme.onSurfaceVariant;
       IconData icon = Icons.check_circle_outline_rounded; // Using rounded icons
 
+      String comparisonText = "";
+      if (previousPeriodAvg != null) {
+        final diff = avgNoise - previousPeriodAvg;
+        if (diff.abs() > 0.01) { // 只有当差异足够大时才显示
+          comparisonText = "与上一时段的平均值 (${_formatStatValue(previousPeriodAvg)} dB) 相比，${diff > 0 ? '上升了' : '下降了'} ${_formatStatValue(diff.abs())} dB。";
+        }
+      }
+
       if (avgNoise > settings.noiseThresholdHigh) {
-        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，已超过 ${settings.noiseThresholdHigh.toStringAsFixed(1)} dB 的高阈值。长时间暴露可能损害听力，请注意防护。";
+        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，已超过 ${settings.noiseThresholdHigh.toStringAsFixed(1)} dB 的高阈值。$comparisonText长时间暴露可能损害听力，请注意防护。";
         highlightColor = theme.colorScheme.error;
         icon = Icons.warning_amber_rounded;
       } else if (avgNoise > settings.noiseThresholdHigh * 0.8) { // 例如，超过阈值的80%作为提醒
-        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，接近高阈值 (${settings.noiseThresholdHigh.toStringAsFixed(1)} dB)。建议关注噪音变化。";
+        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，接近高阈值 (${settings.noiseThresholdHigh.toStringAsFixed(1)} dB)。$comparisonText建议关注噪音变化。";
         highlightColor = theme.colorScheme.tertiary; // Material 3 警示色
         icon = Icons.info_outline_rounded;
       } else {
-        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，低于高阈值。目前环境的噪音水平通常被认为是安全的。";
+        noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，低于高阈值。$comparisonText目前环境的噪音水平通常被认为是安全的。";
       }
       interpretations.add(_buildInterpretationCard(context, "听力健康提示", noiseText, icon, highlightColor));
     }
@@ -1481,6 +1492,14 @@ class _HistoryVisualizationScreenState
       String tempText;
       IconData icon = Icons.thermostat_rounded;
       Color cardColor = theme.colorScheme.surfaceContainerHighest; 
+
+      String comparisonText = "";
+      if (previousPeriodAvg != null) {
+        final diff = avgTemp - previousPeriodAvg;
+         if (diff.abs() > 0.01) {
+          comparisonText = "与上一时段的平均值 (${_formatStatValue(previousPeriodAvg)}°C) 相比，温度${diff > 0 ? '升高了' : '降低了'} ${_formatStatValue(diff.abs())}°C。";
+        }
+      }
 
       // Calculate average humidity from _historicalData for feels-like calculation
       double? avgHumidityForFeelsLike;
@@ -1508,15 +1527,15 @@ class _HistoryVisualizationScreenState
       }
 
       if (avgTemp > settings.temperatureThresholdHigh) {
-        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，高于设定的 ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C 高温阈值，环境可能偏热。$feelsLikeText";
+        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，高于设定的 ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C 高温阈值，环境可能偏热。$comparisonText$feelsLikeText";
         icon = Icons.local_fire_department_rounded;
         cardColor = theme.colorScheme.errorContainer.withAlpha(77); // withOpacity(0.3)
       } else if (avgTemp < settings.temperatureThresholdLow) {
-        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，低于设定的 ${settings.temperatureThresholdLow.toStringAsFixed(1)}°C 低温阈值，环境可能偏冷。$feelsLikeText";
+        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，低于设定的 ${settings.temperatureThresholdLow.toStringAsFixed(1)}°C 低温阈值，环境可能偏冷。$comparisonText$feelsLikeText";
         icon = Icons.ac_unit_rounded;
         cardColor = theme.colorScheme.primaryContainer.withAlpha(77); // withOpacity(0.3)
       } else {
-        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，在您设定的舒适范围内 (${settings.temperatureThresholdLow.toStringAsFixed(1)}°C - ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C)。$feelsLikeText";
+        tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，在您设定的舒适范围内 (${settings.temperatureThresholdLow.toStringAsFixed(1)}°C - ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C)。$comparisonText$feelsLikeText";
       }
       // If feelsLikeText is still empty but we wanted to show something, could add a default message.
       // For instance, if avgHumidityForFeelsLike was null:
@@ -1533,16 +1552,24 @@ class _HistoryVisualizationScreenState
       IconData icon = Icons.water_drop_outlined;
        Color cardColor = theme.colorScheme.surfaceContainerHighest;
 
+      String comparisonText = "";
+      if (previousPeriodAvg != null) {
+        final diff = avgHumidity - previousPeriodAvg;
+        if (diff.abs() > 0.1) { // 湿度变化0.1%以上才显示
+            comparisonText = "与上一时段的平均值 (${_formatStatValue(previousPeriodAvg)}%) 相比，湿度${diff > 0 ? '增加了' : '减少了'} ${_formatStatValue(diff.abs())}%。";
+        }
+      }
+
       if (avgHumidity > settings.humidityThresholdHigh) {
-          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，高于 ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 的高湿阈值，环境可能过于潮湿。";
+          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，高于 ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 的高湿阈值，环境可能过于潮湿。$comparisonText";
           icon = Icons.opacity_rounded; 
           cardColor = theme.colorScheme.tertiaryContainer.withAlpha(77); // withOpacity(0.3)
       } else if (avgHumidity < settings.humidityThresholdLow) {
-          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，低于 ${settings.humidityThresholdLow.toStringAsFixed(1)}% 的低湿阈值，环境可能过于干燥。";
+          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，低于 ${settings.humidityThresholdLow.toStringAsFixed(1)}% 的低湿阈值，环境可能过于干燥。$comparisonText";
           icon = Icons.waves_rounded; 
            cardColor = theme.colorScheme.secondaryContainer.withAlpha(77); // withOpacity(0.3)
       } else {
-          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，在您设定的 ${settings.humidityThresholdLow.toStringAsFixed(1)}% - ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 舒适湿度范围内。";
+          humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，在您设定的 ${settings.humidityThresholdLow.toStringAsFixed(1)}% - ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 舒适湿度范围内。$comparisonText";
       }
       interpretations.add(_buildInterpretationCard(context, "湿度状况", humidityText, icon, theme.colorScheme.tertiary, cardColor: cardColor));
       }
@@ -1552,15 +1579,24 @@ class _HistoryVisualizationScreenState
     if (avgLight != null && _selectedSensorIdentifier == '光照') {
         String lightText;
         IconData icon = Icons.lightbulb_outline_rounded;
+
+        String comparisonText = "";
+        if (previousPeriodAvg != null) {
+            final diff = avgLight - previousPeriodAvg;
+            if (diff.abs() > 1) { // 光照变化1 lux以上才显示
+                comparisonText = "与上一时段的平均值 (${_formatStatValue(previousPeriodAvg)} lux) 相比，光照${diff > 0 ? '增强了' : '减弱了'} ${_formatStatValue(diff.abs())} lux。";
+            }
+        }
+
         // 简单的光照范围示例 (lux值需要根据实际情况调整)
         if (avgLight < 100) {
-            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，环境偏暗，可能不适宜长时间阅读或工作。";
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，环境偏暗，$comparisonText可能不适宜长时间阅读或工作。";
         } else if (avgLight < 300) {
-            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光线较为柔和，适合一般活动。";
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光线较为柔和。$comparisonText适合一般活动。";
         } else if (avgLight < 750) {
-            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光照明亮，适合阅读和工作。";
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光照明亮。$comparisonText适合阅读和工作。";
         } else {
-            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光照非常充足，甚至可能有些刺眼。";
+            lightText = "平均光照 ${_formatStatValue(avgLight)} lux，光照非常充足，$comparisonText甚至可能有些刺眼。";
         }
         interpretations.add(_buildInterpretationCard(context, "光照分析", lightText, icon, theme.colorScheme.secondary));
     }
