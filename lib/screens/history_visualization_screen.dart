@@ -35,6 +35,7 @@ class _HistoryVisualizationScreenState
   String? _selectedSensorIdentifier;
   final List<String> _availableSensors = ['噪声', '温度', '湿度', '光照'];
   bool _initialLoadDone = false;
+  Duration? _activeQuickRangeDuration; // 新增：跟踪当前激活的快捷范围
 
   // 定义数据点之间被认为是不连续的最大时间间隔
   static const Duration MAX_TIME_GAP_FOR_LINE = Duration(minutes: 10);
@@ -134,15 +135,39 @@ class _HistoryVisualizationScreenState
     if (!mounted) return;
 
     DateTime initialDateToShow = DateTime.now();
+    DateTime? firstSelectableDate = DateTime(2000);
+    DateTime? lastSelectableDate = DateTime(2101);
+
+    // 为联动校验设置 firstDate 和 lastDate
+    if (controller == _endDateController && _startDateController.text.isNotEmpty) {
+      final parsedStartDate = _dateFormat.tryParse(_startDateController.text);
+      if (parsedStartDate != null) {
+        firstSelectableDate = parsedStartDate;
+      }
+    } else if (controller == _startDateController && _endDateController.text.isNotEmpty) {
+      final parsedEndDate = _dateFormat.tryParse(_endDateController.text);
+      if (parsedEndDate != null) {
+        lastSelectableDate = parsedEndDate;
+      }
+    }
+    
     if (controller.text.isNotEmpty) {
       initialDateToShow = _dateFormat.tryParse(controller.text) ?? DateTime.now();
+      // 确保 initialDateToShow 在可选范围内
+      if (initialDateToShow.isBefore(firstSelectableDate)) {
+        initialDateToShow = firstSelectableDate;
+      }
+      if (initialDateToShow.isAfter(lastSelectableDate)) {
+        initialDateToShow = lastSelectableDate;
+      }
     }
+
 
     final DateTime? pickedDate = await showDatePicker(
       context: dialogContext,
       initialDate: initialDateToShow,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
+      firstDate: firstSelectableDate,
+      lastDate: lastSelectableDate,
     );
 
     if (!mounted || pickedDate == null) return;
@@ -151,19 +176,41 @@ class _HistoryVisualizationScreenState
      if (controller.text.isNotEmpty) {
         final parsedDateTime = _dateFormat.tryParse(controller.text);
         if (parsedDateTime != null) {
-            initialTimeToShow = TimeOfDay.fromDateTime(parsedDateTime);
+            // 如果选择的是当天，并且是 firstSelectableDate (例如结束日期选择器，且起始日期是今天)
+            // 并且 initialTimeToShow 早于 firstSelectableDate 的时间，则调整 initialTimeToShow
+            if (pickedDate.year == firstSelectableDate.year &&
+                pickedDate.month == firstSelectableDate.month &&
+                pickedDate.day == firstSelectableDate.day &&
+                controller == _endDateController && // 确保是结束日期选择器
+                parsedDateTime.hour < firstSelectableDate.hour || (parsedDateTime.hour == firstSelectableDate.hour && parsedDateTime.minute < firstSelectableDate.minute)
+            ) {
+                 initialTimeToShow = TimeOfDay.fromDateTime(firstSelectableDate);
+            } else {
+                 initialTimeToShow = TimeOfDay.fromDateTime(parsedDateTime);
+            }
         }
+    } else if (controller == _endDateController && 
+               _startDateController.text.isNotEmpty &&
+               pickedDate.year == firstSelectableDate.year &&
+               pickedDate.month == firstSelectableDate.month &&
+               pickedDate.day == firstSelectableDate.day) {
+        // 如果是结束日期选择器，且选择了与起始日期同一天，则 initialTime 应不早于起始时间
+        initialTimeToShow = TimeOfDay.fromDateTime(firstSelectableDate);
     }
-    
+
+
     if (!mounted) return; // Re-check after await
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
       initialTime: initialTimeToShow,
+      // TODO: 可以根据 pickedDate 和 firstSelectableDate/lastSelectableDate 来限制可选时间范围，但这会使 showTimePicker 复杂化
+      // Mellow: TimePicker does not directly support min/max time.
+      // This would require a custom time picker or more complex validation after selection.
     );
 
     if (!mounted || pickedTime == null) return;
 
-    final DateTime combined = DateTime(
+    DateTime combined = DateTime(
       pickedDate.year,
       pickedDate.month,
       pickedDate.day,
@@ -171,13 +218,54 @@ class _HistoryVisualizationScreenState
       pickedTime.minute,
     );
     // 使用秒数为 00
-    final finalDateTime = DateTime(combined.year, combined.month,
+    final DateTime finalDateTime = DateTime(combined.year, combined.month,
         combined.day, combined.hour, combined.minute, 0);
-    controller.text = _dateFormat.format(finalDateTime);
+
+    // 后置校验：确保选择的时间不超出联动范围 (主要针对TimePicker无法直接限制的情况)
+    if (controller == _endDateController && finalDateTime.isBefore(firstSelectableDate)) {
+      combined = firstSelectableDate;
+    } else if (controller == _startDateController && finalDateTime.isAfter(lastSelectableDate)) {
+      combined = lastSelectableDate;
+    }
+    
+    // 再次确保秒数为0
+    final DateTime validatedFinalDateTime = DateTime(combined.year, combined.month,
+        combined.day, combined.hour, combined.minute, 0);
+
+    controller.text = _dateFormat.format(validatedFinalDateTime);
+    // 当手动更改日期时，清除快捷范围的激活状态
+    setState(() {
+      _activeQuickRangeDuration = null;
+    });
   }
 
   Future<void> _loadHistoricalData() async {
     if (!mounted) return;
+
+    final String? currentStartDateString = _startDateController.text.isNotEmpty ? _startDateController.text : null;
+    final String? currentEndDateString = _endDateController.text.isNotEmpty ? _endDateController.text : null;
+
+    // 查询前校验起始和结束时间
+    if (currentStartDateString != null && currentEndDateString != null) {
+      final DateTime? startDate = _dateFormat.tryParse(currentStartDateString);
+      final DateTime? endDate = _dateFormat.tryParse(currentEndDateString);
+      if (startDate != null && endDate != null && startDate.isAfter(endDate)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('错误：起始时间不能晚于结束时间。'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+          setState(() { // 即使校验失败，也应重置加载状态
+            _isLoading = false;
+            _isLoadingPreviousPeriodData = false;
+          });
+        }
+        return; // 阻止继续加载
+      }
+    }
+    
     if (_selectedSensorIdentifier == null) {
       if (mounted) {
         setState(() {
@@ -207,9 +295,6 @@ class _HistoryVisualizationScreenState
 
     final appState = Provider.of<AppState>(context, listen: false);
     
-    String? currentStartDateString = _startDateController.text.isNotEmpty ? _startDateController.text : null;
-    String? currentEndDateString = _endDateController.text.isNotEmpty ? _endDateController.text : null;
-
     try {
       // 1. 加载当前时间段数据
       final data = await appState.searchDbReadings(
@@ -1635,6 +1720,9 @@ class _HistoryVisualizationScreenState
 
     _startDateController.text = _dateFormat.format(startDate);
     _endDateController.text = _dateFormat.format(endDate);
+    setState(() { // 新增：更新激活的快捷范围
+      _activeQuickRangeDuration = duration;
+    });
     _loadHistoricalData();
   }
 
@@ -1725,6 +1813,7 @@ class _HistoryVisualizationScreenState
                               icon: const Icon(Icons.clear, size: 18),
                               onPressed: () {
                                 _startDateController.clear();
+                                setState(() { _activeQuickRangeDuration = null; }); // 清除时也重置快捷状态
                               },
                               tooltip: '清除起始日期',
                             ),
@@ -1758,6 +1847,7 @@ class _HistoryVisualizationScreenState
                               icon: const Icon(Icons.clear, size: 18),
                               onPressed: () {
                                 _endDateController.clear();
+                                setState(() { _activeQuickRangeDuration = null; }); // 清除时也重置快捷状态
                               },
                               tooltip: '清除结束日期',
                             ),
@@ -1783,6 +1873,9 @@ class _HistoryVisualizationScreenState
                       ? null
                       : () {
                           _setDefaultDateRange(); 
+                          setState(() { // 重置时清除快捷状态
+                             _activeQuickRangeDuration = null;
+                          });
                           _loadHistoricalData();
                         },
                   child: const Text('重置 (默认7天)'),
@@ -1795,12 +1888,60 @@ class _HistoryVisualizationScreenState
               runSpacing: 8.0,
               alignment: WrapAlignment.center,
               children: [
-                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 1)), child: const Text('最近1小时')),
-                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 6)), child: const Text('最近6小时')),
-                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 1), startOfDay: true), child: const Text('今天')),
-                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 0)), child: const Text('昨天')), 
-                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 7)), child: const Text('最近7天')),
-                OutlinedButton(onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 30)), child: const Text('最近30天')),
+                OutlinedButton(
+                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 1)),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: _activeQuickRangeDuration == const Duration(hours: 1)
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
+                  ),
+                  child: const Text('最近1小时')
+                ),
+                OutlinedButton(
+                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 6)),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: _activeQuickRangeDuration == const Duration(hours: 6)
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
+                  ),
+                  child: const Text('最近6小时')
+                ),
+                OutlinedButton(
+                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 1), startOfDay: true),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 1) && _activeQuickRangeDuration != const Duration(days: 0) // 避免与"昨天"冲突，如果 Duration 定义一样
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
+                  ),
+                  child: const Text('今天')
+                ),
+                OutlinedButton(
+                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 0)), // '昨天' 使用 Duration.zero 作为唯一标识
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 0)
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
+                  ),
+                  child: const Text('昨天')
+                ), 
+                OutlinedButton(
+                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 7)),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 7)
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
+                  ),
+                  child: const Text('最近7天')
+                ),
+                OutlinedButton(
+                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 30)),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 30)
+                        ? Theme.of(context).colorScheme.primaryContainer
+                        : null,
+                  ),
+                  child: const Text('最近30天')
+                ),
               ],
             )
           ],
