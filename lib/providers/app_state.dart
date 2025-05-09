@@ -124,10 +124,16 @@ class AppState extends ChangeNotifier {
   Timer? _blePollingTimer;
   // --------------------------
 
+  // --- 初始化状态标志 ---
+  bool _initialized = false;
+  bool get isInitialized => _initialized;
+
   // Constructor
   AppState() {
     _bleCommService = BleCommunicationService(); // Initialize BLE service
     _initSettings().then((_) {
+       _initialized = true; // 标记初始化完成
+       notifyListeners();   // 通知 UI
        // Listen to BLE streams AFTER settings are loaded
        _listenToBleStreams();
        // Initial load from DB after settings are ready
@@ -138,7 +144,7 @@ class AppState extends ChangeNotifier {
   // Initialize Settings (Keep as is)
   Future<void> _initSettings() async {
     _settings = await _settingsService.loadSettings();
-    // Don't notify yet, wait for constructor end or explicit call
+    // 不要在这里 notifyListeners，等构造函数里统一通知
   }
 
   // Update/Reset Settings (Keep as is)
@@ -557,7 +563,7 @@ class AppState extends ChangeNotifier {
 
       _bleConnectionStateSubscription = _bleCommService.connectionStateStream.listen(
          (isConnected) {
-            _isConnectingBle = false; 
+            _isConnectingBle = false;
             _isBleConnected = isConnected;
 
             if (isConnected) {

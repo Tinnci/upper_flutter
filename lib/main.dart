@@ -47,6 +47,20 @@ class MyApp extends StatelessWidget {
     // 使用 Consumer 获取 AppState
     return Consumer<AppState>(
       builder: (context, appState, child) {
+        // --- 新增: 初始化检查 ---
+        if (!appState.isInitialized) {
+          // 显示启动加载界面
+          return MaterialApp(
+            home: Scaffold(
+              body: Center(
+                child: CircularProgressIndicator(),
+              ),
+            ),
+            debugShowCheckedModeBanner: false,
+          );
+        }
+        // --- 结束初始化检查 ---
+
         // 添加全局快捷键
         return Shortcuts(
           shortcuts: <ShortcutActivator, Intent>{
