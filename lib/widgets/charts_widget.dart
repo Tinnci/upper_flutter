@@ -203,7 +203,7 @@ class SingleChartCard extends StatelessWidget {
                                  labelText = '${DateFormat('ss').format(timestamp)}s'; 
                                }
                                return SideTitleWidget(
-                                 axisSide: meta.axisSide,
+                                 meta: meta,
                                  space: 4,
                                  child: Text(labelText, style: const TextStyle(fontSize: 10)), 
                                );
