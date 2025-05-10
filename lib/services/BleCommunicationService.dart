@@ -315,7 +315,7 @@ class BleCommunicationService {
      final luxUuidLower = LUX_CHAR_UUID.toLowerCase();
      final noiseUuidLower = NOISE_CHAR_UUID.toLowerCase();
      // --- NEW: Lowercase LED state UUID ---
-     final ledStateUuidLower = LED_STATE_CHAR_UUID.toLowerCase();
+     // final ledStateUuidLower = LED_STATE_CHAR_UUID.toLowerCase(); // Commented out as it's currently unused
      // --- END NEW ---
 
      try {

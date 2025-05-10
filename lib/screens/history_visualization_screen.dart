@@ -11,6 +11,20 @@ import 'dart:math' as math;
 // 新增导入拆分出来的组件
 import 'history_visualization/components/statistics_panel.dart';
 
+// 新增：将枚举定义移到此处 (文件顶部)
+enum _ChartDisplayMode { line, candlestick }
+
+// Helper function for formatting stat values (similar to the one in statistics_panel.dart)
+String _formatStatValueHelper(dynamic value) {
+  if (value is double) {
+    if ((value - value.truncate()).abs() < 0.05 && value.abs() < 1000 || value == 0) {
+      return value.truncate().toString();
+    }
+    return value.toStringAsFixed(1);
+  }
+  return value.toString();
+}
+
 class HistoryVisualizationScreen extends StatefulWidget {
   final String? sensorIdentifier;
 
@@ -40,6 +54,9 @@ class _HistoryVisualizationScreenState
   bool _initialLoadDone = false;
   Duration? _activeQuickRangeDuration;
 
+  //  _ChartDisplayMode 枚举已移到文件顶部
+  _ChartDisplayMode _currentChartDisplayMode = _ChartDisplayMode.line; // 默认显示折线图
+
   static const Duration MAX_TIME_GAP_FOR_LINE = Duration(minutes: 10);
 
   Map<String, dynamic>? _statistics;
@@ -48,6 +65,37 @@ class _HistoryVisualizationScreenState
 
   Map<String, dynamic>? _previousPeriodStatistics;
   bool _isLoadingPreviousPeriodData = false;
+
+  List<CandlestickSpot> _candlestickSpots = [];
+
+  Duration? _userSelectedAggregationInterval;
+  static const List<Duration> _availableAggregationIntervals = [
+    Duration(hours: 1),
+    Duration(hours: 6),
+    Duration(days: 1),
+  ];
+  static const Duration _defaultDynamicAggregationInterval = Duration(days: 1);
+
+  Duration get _currentAggregationInterval {
+    if (_userSelectedAggregationInterval != null) {
+      return _userSelectedAggregationInterval!;
+    }
+    DateTime? startDate = _dateFormat.tryParse(_startDateController.text);
+    DateTime? endDate = _dateFormat.tryParse(_endDateController.text);
+
+    if (startDate == null || endDate == null || endDate.isBefore(startDate)) {
+      return _defaultDynamicAggregationInterval;
+    }
+    final rangeDuration = endDate.difference(startDate);
+
+    if (rangeDuration.inDays <= 1) {
+      return const Duration(hours: 1);
+    } else if (rangeDuration.inDays <= 7) {
+      return const Duration(hours: 6);
+    } else {
+      return const Duration(days: 1);
+    }
+  }
 
   void _clearChartHighlight() {
     if (_highlightedTimestamp != null || _highlightedSensorValueType != null) {
@@ -61,11 +109,11 @@ class _HistoryVisualizationScreenState
   @override
   void initState() {
     super.initState();
-    _selectedSensorIdentifier = widget.sensorIdentifier ?? '噪声';
-    _setDefaultDateRange();
+    _selectedSensorIdentifier = widget.sensorIdentifier ?? _availableSensors.first;
+    _setDefaultDateRange(triggerLoad: false);
   }
 
-  void _setDefaultDateRange({bool sevenDays = true}) {
+  void _setDefaultDateRange({bool sevenDays = true, bool triggerLoad = true}) {
     final now = DateTime.now();
     DateTime startDate;
     if (sevenDays) {
@@ -75,6 +123,9 @@ class _HistoryVisualizationScreenState
     }
     _startDateController.text = _dateFormat.format(startDate);
     _endDateController.text = _dateFormat.format(now);
+    if (triggerLoad && mounted) {
+      _loadHistoricalData();
+    }
   }
 
   @override
@@ -84,7 +135,7 @@ class _HistoryVisualizationScreenState
       if (widget.sensorIdentifier != null && widget.sensorIdentifier != _selectedSensorIdentifier) {
         _selectedSensorIdentifier = widget.sensorIdentifier;
       } else if (widget.sensorIdentifier == null && _selectedSensorIdentifier == null) {
-        _selectedSensorIdentifier = '噪声';
+        _selectedSensorIdentifier = _availableSensors.first;
       }
       _loadHistoricalData();
       _initialLoadDone = true;
@@ -94,8 +145,8 @@ class _HistoryVisualizationScreenState
   @override
   void didUpdateWidget(HistoryVisualizationScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.sensorIdentifier != oldWidget.sensorIdentifier) {
-      _selectedSensorIdentifier = widget.sensorIdentifier ?? '噪声';
+    if (widget.sensorIdentifier != oldWidget.sensorIdentifier && widget.sensorIdentifier != null) {
+      _selectedSensorIdentifier = widget.sensorIdentifier;
       _loadHistoricalData();
     }
   }
@@ -112,28 +163,29 @@ class _HistoryVisualizationScreenState
     if (!mounted) return;
 
     DateTime initialDateToShow = DateTime.now();
-    DateTime? firstSelectableDate = DateTime(2000);
-    DateTime? lastSelectableDate = DateTime(2101);
+    DateTime firstSelectableDate = DateTime(2000);
+    DateTime lastSelectableDate = DateTime(2101);
 
     if (controller == _endDateController && _startDateController.text.isNotEmpty) {
       final parsedStartDate = _dateFormat.tryParse(_startDateController.text);
       if (parsedStartDate != null) {
         firstSelectableDate = parsedStartDate;
+        if (initialDateToShow.isBefore(parsedStartDate)) initialDateToShow = parsedStartDate;
       }
     } else if (controller == _startDateController && _endDateController.text.isNotEmpty) {
       final parsedEndDate = _dateFormat.tryParse(_endDateController.text);
       if (parsedEndDate != null) {
         lastSelectableDate = parsedEndDate;
+        if (initialDateToShow.isAfter(parsedEndDate)) initialDateToShow = parsedEndDate;
       }
     }
     
     if (controller.text.isNotEmpty) {
-      initialDateToShow = _dateFormat.tryParse(controller.text) ?? DateTime.now();
-      if (initialDateToShow.isBefore(firstSelectableDate)) {
-        initialDateToShow = firstSelectableDate;
-      }
-      if (initialDateToShow.isAfter(lastSelectableDate)) {
-        initialDateToShow = lastSelectableDate;
+      final parsedControllerDate = _dateFormat.tryParse(controller.text);
+      if (parsedControllerDate != null) {
+        initialDateToShow = parsedControllerDate;
+        if (initialDateToShow.isBefore(firstSelectableDate)) initialDateToShow = firstSelectableDate;
+        if (initialDateToShow.isAfter(lastSelectableDate)) initialDateToShow = lastSelectableDate;
       }
     }
 
@@ -146,17 +198,22 @@ class _HistoryVisualizationScreenState
 
     if (!mounted || pickedDate == null) return;
 
-    TimeOfDay initialTimeToShow = TimeOfDay.now();
+    TimeOfDay initialTimeToShow = TimeOfDay.fromDateTime(initialDateToShow);
      if (controller.text.isNotEmpty) {
         final parsedDateTime = _dateFormat.tryParse(controller.text);
         if (parsedDateTime != null) {
-            if (pickedDate.year == firstSelectableDate.year &&
+            if (controller == _endDateController && 
+                _startDateController.text.isNotEmpty &&
+                pickedDate.year == firstSelectableDate.year &&
                 pickedDate.month == firstSelectableDate.month &&
-                pickedDate.day == firstSelectableDate.day &&
-                controller == _endDateController &&
-                (parsedDateTime.hour < firstSelectableDate.hour || (parsedDateTime.hour == firstSelectableDate.hour && parsedDateTime.minute < firstSelectableDate.minute))
-            ) {
-                 initialTimeToShow = TimeOfDay.fromDateTime(firstSelectableDate);
+                pickedDate.day == firstSelectableDate.day) {
+                initialTimeToShow = TimeOfDay.fromDateTime(firstSelectableDate);
+            } else if (controller == _startDateController &&
+                       _endDateController.text.isNotEmpty &&
+                       pickedDate.year == lastSelectableDate.year &&
+                       pickedDate.month == lastSelectableDate.month &&
+                       pickedDate.day == lastSelectableDate.day){
+                 initialTimeToShow = TimeOfDay.fromDateTime(lastSelectableDate);
             } else {
                  initialTimeToShow = TimeOfDay.fromDateTime(parsedDateTime);
             }
@@ -183,23 +240,26 @@ class _HistoryVisualizationScreenState
       pickedDate.day,
       pickedTime.hour,
       pickedTime.minute,
+      0,
     );
-    final DateTime finalDateTime = DateTime(combined.year, combined.month,
-        combined.day, combined.hour, combined.minute, 0);
-
-    if (controller == _endDateController && finalDateTime.isBefore(firstSelectableDate)) {
-      combined = firstSelectableDate;
-    } else if (controller == _startDateController && finalDateTime.isAfter(lastSelectableDate)) {
-      combined = lastSelectableDate;
-    }
     
-    final DateTime validatedFinalDateTime = DateTime(combined.year, combined.month,
-        combined.day, combined.hour, combined.minute, 0);
+    if (controller == _endDateController && _startDateController.text.isNotEmpty) {
+        final parsedStartDate = _dateFormat.tryParse(_startDateController.text);
+        if(parsedStartDate != null && combined.isBefore(parsedStartDate)) {
+            combined = parsedStartDate;
+        }
+    } else if (controller == _startDateController && _endDateController.text.isNotEmpty) {
+        final parsedEndDate = _dateFormat.tryParse(_endDateController.text);
+        if(parsedEndDate != null && combined.isAfter(parsedEndDate)) {
+            combined = parsedEndDate;
+        }
+    }
 
-    controller.text = _dateFormat.format(validatedFinalDateTime);
+    controller.text = _dateFormat.format(combined);
     setState(() {
       _activeQuickRangeDuration = null;
     });
+    if (mounted) _loadHistoricalData();
   }
 
   Future<void> _loadHistoricalData() async {
@@ -222,6 +282,7 @@ class _HistoryVisualizationScreenState
           setState(() {
             _isLoading = false;
             _isLoadingPreviousPeriodData = false;
+            _candlestickSpots = [];
           });
         }
         return;
@@ -238,10 +299,12 @@ class _HistoryVisualizationScreenState
           _maxX = null;
           _statistics = null;
           _previousPeriodStatistics = null;
+          _candlestickSpots = [];
         });
       }
       return;
     }
+
     if (mounted) {
       setState(() {
         _isLoading = true;
@@ -252,6 +315,7 @@ class _HistoryVisualizationScreenState
         _previousPeriodStatistics = null;
         _highlightedTimestamp = null;
         _highlightedSensorValueType = null;
+        _candlestickSpots = [];
       });
     }
 
@@ -269,9 +333,10 @@ class _HistoryVisualizationScreenState
       if (data.isNotEmpty) {
         currentStats = _calculateStatistics(data, _selectedSensorIdentifier);
       }
+      
+      _historicalData = data;
 
       setState(() {
-        _historicalData = data;
         _statistics = currentStats;
         if (data.isNotEmpty) {
           _minX = data.first.timestamp.millisecondsSinceEpoch.toDouble();
@@ -285,17 +350,16 @@ class _HistoryVisualizationScreenState
           _minX = null;
           _maxX = null;
         }
-        _isLoading = false;
       });
+
+      _prepareAndSetCandlestickData(); 
 
       if (currentStats != null && currentStartDateString != null && currentEndDateString != null) {
         final DateTime? currentStartDate = _dateFormat.tryParse(currentStartDateString);
         final DateTime? currentEndDate = _dateFormat.tryParse(currentEndDateString);
 
         if (currentStartDate != null && currentEndDate != null && currentEndDate.isAfter(currentStartDate)) {
-          setState(() {
-            _isLoadingPreviousPeriodData = true;
-          });
+          if(mounted) setState(() => _isLoadingPreviousPeriodData = true);
 
           final Duration currentDuration = currentEndDate.difference(currentStartDate);
           final DateTime previousPeriodEndDate = currentStartDate.subtract(const Duration(microseconds: 1));
@@ -313,10 +377,12 @@ class _HistoryVisualizationScreenState
             if (previousData.isNotEmpty) {
               previousStats = _calculateStatistics(previousData, _selectedSensorIdentifier);
             }
-            setState(() {
-              _previousPeriodStatistics = previousStats;
-              _isLoadingPreviousPeriodData = false;
-            });
+            if(mounted) {
+                setState(() {
+                  _previousPeriodStatistics = previousStats;
+                  _isLoadingPreviousPeriodData = false;
+                });
+            }
           } catch (e) {
             if (mounted) {
               setState(() {
@@ -347,12 +413,17 @@ class _HistoryVisualizationScreenState
       if (mounted) {
         setState(() {
           _errorMessage = '加载历史数据失败: $e';
-          _isLoading = false;
-          _isLoadingPreviousPeriodData = false;
           _statistics = null;
           _previousPeriodStatistics = null;
+          _candlestickSpots = [];
         });
       }
+    } finally {
+        if (mounted) {
+            setState(() {
+                _isLoading = false;
+            });
+        }
     }
   }
 
@@ -402,22 +473,26 @@ class _HistoryVisualizationScreenState
         if (val == maxVal && maxDataPoint == null) maxDataPoint = data;
       }
     }
+    if (minDataPoint == null && yValues.isNotEmpty) minDataPoint = dataList.firstWhere((d) => _getYValueForStat(d, sensorIdentifier) == minVal, orElse: () => dataList.first);
+    if (maxDataPoint == null && yValues.isNotEmpty) maxDataPoint = dataList.lastWhere((d) => _getYValueForStat(d, sensorIdentifier) == maxVal, orElse: () => dataList.last);
 
     String trend = "平稳";
     if (yValues.length >= 10) {
       final firstHalfAvg = yValues.sublist(0, yValues.length ~/ 2).reduce((a, b) => a + b) / (yValues.length ~/ 2);
       final secondHalfAvg = yValues.sublist(yValues.length ~/ 2).reduce((a, b) => a + b) / (yValues.length - (yValues.length ~/ 2));
-      final diffPercentage = average != 0 ? (secondHalfAvg - firstHalfAvg).abs() / average : 0;
+      final diffPercentage = average != 0 ? (secondHalfAvg - firstHalfAvg).abs() / average.abs() : 0;
 
       if (secondHalfAvg > firstHalfAvg && diffPercentage > 0.1) {
         trend = "上升";
       } else if (secondHalfAvg < firstHalfAvg && diffPercentage > 0.1) {
         trend = "下降";
       }
-    } else if (yValues.length > 1 && yValues.last > yValues.first) {
-      trend = "轻微上升";
-    } else if (yValues.length > 1 && yValues.last < yValues.first) {
-      trend = "轻微下降";
+    } else if (yValues.length > 1) {
+        final change = yValues.last - yValues.first;
+        final relativeChange = average != 0 ? change.abs() / average.abs() : 0;
+        if (change > 0 && relativeChange > 0.05) {
+          trend = "轻微上升";
+        } else if (change < 0 && relativeChange > 0.05) trend = "轻微下降";
     }
 
     List<FlSpot> sparklineSpots = [];
@@ -470,19 +545,20 @@ class _HistoryVisualizationScreenState
       final data = dataList[i];
       final x = data.timestamp.millisecondsSinceEpoch.toDouble();
       final y = getYValue(data);
-      FlSpot spot;
-
-      if (y.isFinite) {
-        spot = FlSpot(x, y);
-      } else {
-        debugPrint("警告: 无效的 Y 值 ($y) 用于图表 (传感器: $sensorIdentifier) 在时间戳 $x. 替换为 0。");
-        spot = FlSpot(x, 0); 
+      
+      if (!y.isFinite) {
+          if (currentSegment.isNotEmpty) {
+              allSegments.add(List.from(currentSegment));
+              currentSegment.clear();
+          }
+          continue; 
       }
+      
+      FlSpot spot = FlSpot(x, y);
 
       if (currentSegment.isNotEmpty) {
         final previousTimestamp = DateTime.fromMillisecondsSinceEpoch(currentSegment.last.x.toInt());
-        final currentTimestamp = data.timestamp;
-        if (currentTimestamp.difference(previousTimestamp) > MAX_TIME_GAP_FOR_LINE) {
+        if (data.timestamp.difference(previousTimestamp) > MAX_TIME_GAP_FOR_LINE) {
           allSegments.add(List.from(currentSegment));
           currentSegment.clear();
         }
@@ -494,7 +570,12 @@ class _HistoryVisualizationScreenState
       allSegments.add(List.from(currentSegment));
     }
     
-    if (allSegments.isEmpty) return [[]]; 
+    if (allSegments.isEmpty && dataList.any((d) => getYValue(d).isFinite) && dataList.length == 1) {
+        final singleData = dataList.firstWhere((d) => getYValue(d).isFinite);
+        allSegments.add([FlSpot(singleData.timestamp.millisecondsSinceEpoch.toDouble(), getYValue(singleData))]);
+    } else if (allSegments.isEmpty) {
+      return [[]];
+    }
 
     return allSegments;
   }
@@ -530,7 +611,7 @@ class _HistoryVisualizationScreenState
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.error_outline, color: colorScheme.error, size: 64),
+            Icon(Icons.error_outline, color: colorScheme.error, size: 48),
             const SizedBox(height: 16),
             Text(
               message,
@@ -562,7 +643,7 @@ class _HistoryVisualizationScreenState
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(icon, color: colorScheme.onSurfaceVariant, size: 64),
+            Icon(icon, color: colorScheme.onSurfaceVariant, size: 48),
             const SizedBox(height: 16),
             Text(
               message,
@@ -600,6 +681,7 @@ class _HistoryVisualizationScreenState
       elevation: 0,
       color: cardColor ?? theme.colorScheme.surfaceContainerHighest,
       margin: const EdgeInsets.only(bottom: 12.0),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Row(
@@ -847,17 +929,576 @@ class _HistoryVisualizationScreenState
     );
   }
 
+  void _prepareAndSetCandlestickData() {
+    if (!mounted) return;
+
+    final activeAggregationInterval = _currentAggregationInterval;
+
+    if (_historicalData.isEmpty || _selectedSensorIdentifier == null) {
+      if(mounted) setState(() => _candlestickSpots = []);
+      return;
+    }
+
+    final List<CandlestickSpot> spots = [];
+    DateTime? viewStartDate = _dateFormat.tryParse(_startDateController.text);
+    DateTime? viewEndDate = _dateFormat.tryParse(_endDateController.text);
+
+    if (viewStartDate == null || viewEndDate == null || viewEndDate.isBefore(viewStartDate)) {
+       if (_historicalData.isNotEmpty) {
+            viewStartDate = _historicalData.first.timestamp;
+            viewEndDate = _historicalData.last.timestamp;
+             if (viewEndDate.isBefore(viewStartDate)) { 
+                setState(() => _candlestickSpots = []); return;
+             }
+        } else {
+            setState(() => _candlestickSpots = []); return;
+        }
+    }
+
+    DateTime currentPeriodStart = _truncateDate(viewStartDate, activeAggregationInterval);
+
+    while (!currentPeriodStart.isAfter(viewEndDate)) {
+      final DateTime currentPeriodEnd = currentPeriodStart.add(activeAggregationInterval);
+      final periodData = _historicalData.where((d) {
+        final dataTimestamp = d.timestamp;
+        return !dataTimestamp.isBefore(currentPeriodStart) && dataTimestamp.isBefore(currentPeriodEnd);
+      }).toList();
+
+      if (periodData.isNotEmpty) {
+        final List<double> values = periodData
+            .map((d) => _getYValueForStat(d, _selectedSensorIdentifier))
+            .where((y) => y.isFinite)
+            .toList();
+
+        if (values.isNotEmpty) {
+          final open = values.first;
+          final high = values.reduce(math.max);
+          final low = values.reduce(math.min);
+          final close = values.last;
+          
+          spots.add(CandlestickSpot(
+            x: currentPeriodStart.millisecondsSinceEpoch.toDouble(),
+            open: open,
+            high: high,
+            low: low,
+            close: close,
+          ));
+        }
+      }
+      if (currentPeriodStart == currentPeriodEnd) {
+          break;
+      }
+      currentPeriodStart = currentPeriodEnd;
+    }
+    
+    setState(() {
+      _candlestickSpots = spots;
+    });
+  }
+
+  DateTime _truncateDate(DateTime date, Duration interval) {
+    if (interval == const Duration(days: 1)) {
+      return DateTime(date.year, date.month, date.day);
+    } else if (interval == const Duration(hours: 6)) {
+      return DateTime(date.year, date.month, date.day, (date.hour ~/ 6) * 6);
+    } else if (interval == const Duration(hours: 1)) {
+      return DateTime(date.year, date.month, date.day, date.hour);
+    }
+    debugPrint("Warning: Unexpected aggregation interval for _truncateDate: $interval. Defaulting to day truncation.");
+    return DateTime(date.year, date.month, date.day);
+  }
+
+  // 将 _getAggregationIntervalLabel 重命名并简化
+  String _formatDurationToLabel(Duration interval) { // interval 应为非空
+    if (interval == const Duration(days: 1)) return '按日';
+    if (interval == const Duration(hours: 6)) return '6小时';
+    if (interval == const Duration(hours: 1)) return '1小时';
+    // For multi-day/hour, keep it simple
+    if (interval.inDays > 0 && interval.inHours % 24 == 0) return '${interval.inDays}日';
+    if (interval.inHours > 0) return '${interval.inHours}小时';
+    if (interval.inMinutes > 0) return '${interval.inMinutes}分钟';
+    return '周期'; // Generic fallback if somehow not covered (e.g., less than a minute)
+  }
+  
+  Widget _buildAggregationIntervalSelector() {
+    final theme = Theme.of(context);
+    final List<ButtonSegment<Duration?>> segments = [
+      ButtonSegment<Duration?>(
+        value: null, // 'null' represents the "Auto" selection
+        label: Text(
+          _userSelectedAggregationInterval == null
+              ? '自动 (${_formatDurationToLabel(_currentAggregationInterval)})' // "自动" 模式激活时
+              : '自动' // "自动" 模式未激活时
+        ),
+        icon: _userSelectedAggregationInterval == null 
+              ? const Icon(Icons.auto_awesome_outlined, size: 18) 
+              : null, // 仅在 "自动" 激活时显示图标
+      ),
+      ..._availableAggregationIntervals.map((interval) {
+        return ButtonSegment<Duration?>(
+          value: interval,
+          label: Text(_formatDurationToLabel(interval)), // 使用新的辅助函数
+          // icon: _userSelectedAggregationInterval == interval ? const Icon(Icons.check_circle_outline, size: 16) : null, // 可选：为选中的手动项添加图标
+        );
+      }),
+    ];
+
+    return SegmentedButton<Duration?>(
+      segments: segments,
+      selected: <Duration?>{_userSelectedAggregationInterval}, // selected is a Set
+      onSelectionChanged: (Set<Duration?> newSelection) {
+        setState(() {
+          // SegmentedButton can have multiple selections if 'multiSelectionEnabled' is true,
+          // but for this use case, we only care about a single selection.
+          _userSelectedAggregationInterval = newSelection.first;
+        });
+        _prepareAndSetCandlestickData();
+      },
+      style: SegmentedButton.styleFrom(
+        // visualDensity: VisualDensity.compact, // Makes buttons smaller
+        padding: const EdgeInsets.symmetric(horizontal: 8.0), // Adjust padding if needed
+        textStyle: theme.textTheme.labelSmall,
+      ),
+      showSelectedIcon: false, // Hides the default checkmark, 依赖背景色区分选中状态
+    );
+  }
+
+  Widget _buildActualCandlestickChart() {
+    final activeAggregationInterval = _currentAggregationInterval;
+    double cMinX = double.maxFinite;
+    double cMaxX = double.minPositive;
+    double minY = double.maxFinite;
+    double maxY = double.minPositive;
+
+    if (_candlestickSpots.isEmpty) return const SizedBox.shrink(); 
+
+    for (var spot in _candlestickSpots) {
+      minY = math.min(minY, spot.low);
+      maxY = math.max(maxY, spot.high);
+      cMinX = math.min(cMinX, spot.x);
+      cMaxX = math.max(cMaxX, spot.x + activeAggregationInterval.inMilliseconds.toDouble());
+    }
+
+    if (cMinX == double.maxFinite || cMaxX == double.minPositive || cMinX >= cMaxX) {
+        DateTime? viewStartDate = _dateFormat.tryParse(_startDateController.text);
+        if (viewStartDate != null) {
+            cMinX = viewStartDate.millisecondsSinceEpoch.toDouble();
+            cMaxX = cMinX + const Duration(days:1).inMilliseconds.toDouble(); 
+        } else if (_candlestickSpots.isNotEmpty) {
+             cMinX = _candlestickSpots.first.x;
+             cMaxX = _candlestickSpots.last.x + activeAggregationInterval.inMilliseconds.toDouble();
+        } else {
+            cMinX = DateTime.now().subtract(const Duration(days:1)).millisecondsSinceEpoch.toDouble();
+            cMaxX = DateTime.now().millisecondsSinceEpoch.toDouble();
+        }
+    }
+    
+    final String chartTitle = '${_selectedSensorIdentifier ?? "数据"} - ${_formatDurationToLabel(activeAggregationInterval)}'; // 使用新的辅助函数
+    final Color candleUpColor = Theme.of(context).colorScheme.primary;
+    final Color candleDownColor = Theme.of(context).colorScheme.error;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0, top:8.0),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  chartTitle,
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(width: 8),
+              _buildAggregationIntervalSelector(),
+            ],
+          ),
+        ),
+        Expanded(
+          child: CandlestickChart(
+            _buildCandlestickChartData(
+              spots: _candlestickSpots,
+              minX: cMinX,
+              maxX: cMaxX,
+              minY: minY,
+              maxY: maxY,
+              aggregationInterval: activeAggregationInterval,
+              upColor: candleUpColor,
+              downColor: candleDownColor,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  CandlestickChartData _buildCandlestickChartData({
+    required List<CandlestickSpot> spots,
+    required double minX,
+    required double maxX,
+    required double minY,
+    required double maxY,
+    required Duration aggregationInterval,
+    required Color upColor,
+    required Color downColor,
+  }) {
+    final theme = Theme.of(context); // 新增：获取 theme 和 colorScheme
+    final colorScheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
+
+    // Define the style provider
+    styleProvider(CandlestickSpot spot, int index) {
+      final Color bodyFillColor = spot.isUp ? upColor : downColor;
+      // 影线颜色：使用柱体颜色，或稍微降低透明度以区分
+      final Color wickColor = bodyFillColor.withValues(alpha: 0.8); // 调整 alpha 值
+
+      double calculatedBodyWidth = 6.0; // Default width
+      double totalDurationHours = (maxX - minX) / (1000 * 60 * 60);
+      if (aggregationInterval.inHours >= 24 && totalDurationHours > 30 * 24) { // More than 30 days with daily candles
+          calculatedBodyWidth = 3.0;
+      } else if (aggregationInterval.inHours >= 6 && totalDurationHours > 7 * 24) { // More than 7 days with 6-hour candles
+          calculatedBodyWidth = 4.0;
+      } else if (aggregationInterval.inHours >=1 && totalDurationHours > 2*24) { // More than 2 days with hourly candles
+          calculatedBodyWidth = 5.0;
+      }
+
+      return CandlestickStyle(
+        lineColor: wickColor, // Wick color
+        lineWidth: 1.5,       // Wick thickness
+        bodyStrokeColor: Colors.transparent, // 移除柱体描边，使其更干净
+        bodyStrokeWidth: 0.0, // 描边宽度为0
+        bodyFillColor: bodyFillColor, // Main body color
+        bodyWidth: calculatedBodyWidth, 
+        bodyRadius: 1.5,      // 稍微增加圆角，使其更 M3
+      );
+    }
+
+    final customPainter = DefaultCandlestickPainter(
+      candlestickStyleProvider: styleProvider,
+    );
+
+    return CandlestickChartData(
+      candlestickSpots: spots,
+      candlestickPainter: customPainter, // Pass the custom painter
+      minX: minX,
+      maxX: maxX,
+      minY: minY,
+      maxY: maxY,
+      titlesData: FlTitlesData(
+        bottomTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 30,
+            interval: _calculateAxisIntervalForCandlestick(minX, maxX, aggregationInterval),
+            getTitlesWidget: (value, meta) =>
+                _bottomTitleWidgetsForCandlestick(value, meta, minX, maxX, textTheme, colorScheme), // 传递 textTheme 和 colorScheme
+          ),
+        ),
+        leftTitles: AxisTitles(
+          sideTitles: SideTitles(
+            showTitles: true,
+            reservedSize: 50, // 根据实际标签宽度调整
+            getTitlesWidget: (value, meta) {
+              // 使用 M3 文本样式
+              final style = textTheme.labelSmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              );
+              // 直接返回 Text Widget，用 Padding 控制间距
+              return Padding(
+                padding: const EdgeInsets.only(right: 4.0), // 模拟原 space: 4 的效果
+                child: Text(
+                  meta.formattedValue,
+                  style: style,
+                  textAlign: TextAlign.right, // 左侧标题通常右对齐
+                ),
+              );
+            },
+          ),
+        ),
+        topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+      ),
+      gridData: FlGridData(
+        show: true,
+        drawVerticalLine: true,
+        verticalInterval: _calculateAxisIntervalForCandlestick(minX, maxX, aggregationInterval),
+        getDrawingHorizontalLine: (value) {
+          return FlLine(color: colorScheme.outline.withValues(alpha: 0.2), strokeWidth: 0.8);
+        },
+        getDrawingVerticalLine: (value) {
+          return FlLine(color: colorScheme.outline.withValues(alpha: 0.2), strokeWidth: 0.8);
+        },
+      ),
+      borderData: FlBorderData(show: true, border: Border.all(color: colorScheme.outline.withValues(alpha: 0.3))),
+      candlestickTouchData: CandlestickTouchData(
+        enabled: true,
+        touchTooltipData: CandlestickTouchTooltipData(
+          getTooltipColor: (CandlestickSpot spot) {
+            return colorScheme.inverseSurface.withValues(alpha: 0.9); // M3 风格的 Tooltip 背景
+          },
+          getTooltipItems: (FlCandlestickPainter painter, CandlestickSpot touchedSpot, int spotIndex) {
+            final date = DateTime.fromMillisecondsSinceEpoch(touchedSpot.x.toInt());
+            String dateFormatPattern;
+            if (aggregationInterval.inDays >= 1) {
+              dateFormatPattern = 'yyyy-MM-dd';
+            } else {
+              dateFormatPattern = 'MM-dd HH:mm';
+            }
+            
+            final Color tooltipTextColor = colorScheme.onInverseSurface; // M3 Tooltip 文本颜色
+
+            // 统一使用 tooltipTextColor
+            final valueTextStyle = textTheme.bodySmall?.copyWith(color: tooltipTextColor, height: 1.4);
+            final dateTextStyle = textTheme.labelMedium?.copyWith(color: tooltipTextColor, fontWeight: FontWeight.bold);
+
+
+            return CandlestickTooltipItem(
+              '', 
+              children: <TextSpan>[
+                TextSpan(
+                  text: DateFormat(dateFormatPattern).format(date),
+                  style: dateTextStyle,
+                ),
+                TextSpan(text: '\n开: ${_formatStatValueHelper(touchedSpot.open)}', style: valueTextStyle),
+                TextSpan(text: '\n高: ${_formatStatValueHelper(touchedSpot.high)}', style: valueTextStyle),
+                TextSpan(text: '\n低: ${_formatStatValueHelper(touchedSpot.low)}', style: valueTextStyle),
+                TextSpan(text: '\n收: ${_formatStatValueHelper(touchedSpot.close)}', style: valueTextStyle),
+              ],
+            );
+          },
+        ),
+        handleBuiltInTouches: true,
+      ),
+    );
+  }
+
+  Widget _bottomTitleWidgetsForCandlestick(double value, TitleMeta meta, double viewMinX, double viewMaxX, TextTheme textTheme, ColorScheme colorScheme) { // 接收 textTheme 和 colorScheme
+    final activeAggregationInterval = _currentAggregationInterval;
+    final timestamp = DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    String text;
+    
+    final totalSpanMillis = viewMaxX - viewMinX;
+    if (totalSpanMillis <= 0) {
+        text = DateFormat('HH:mm').format(timestamp);
+    } else {
+        final totalSpanDays = totalSpanMillis / (1000 * 60 * 60 * 24);
+
+        if (activeAggregationInterval.inDays >= 1) {
+            if (totalSpanDays <= 10) {
+              text = DateFormat('dd').format(timestamp);
+            } else {
+              text = DateFormat('MM-dd').format(timestamp);
+            }
+        } else {
+            if (totalSpanDays <= 1) {
+                text = DateFormat('HH:mm').format(timestamp);
+            } else if (totalSpanDays <= 3) {
+                text = '${DateFormat('dd HH').format(timestamp)}h';
+            } else {
+                text = DateFormat('MM-dd').format(timestamp);
+            }
+        }
+    }
+    if (value >= viewMaxX && activeAggregationInterval.inMilliseconds > 0) {
+        bool isLastTrueCandleEnd = false;
+        if (_candlestickSpots.isNotEmpty) {
+            final lastCandleEndX = _candlestickSpots.last.x + activeAggregationInterval.inMilliseconds;
+            if (value >= lastCandleEndX) isLastTrueCandleEnd = true;
+        }
+        if (isLastTrueCandleEnd && value > _candlestickSpots.last.x ) return const SizedBox.shrink();
+    }
+
+    // 使用 M3 文本样式
+    final style = textTheme.labelSmall?.copyWith(
+      color: colorScheme.onSurfaceVariant,
+    );
+
+    // 直接返回 Text Widget，用 Padding 控制间距
+    return Padding(
+      padding: const EdgeInsets.only(top: 4.0), // 模拟原 space: 4 的效果
+      child: Text(
+        text,
+        style: style,
+        textAlign: TextAlign.center, // 底部标题通常居中对齐
+      ),
+    );
+  }
+
+  double _calculateAxisIntervalForCandlestick(double minVal, double maxVal, Duration aggregationInterval) {
+      final spanMillis = maxVal - minVal;
+      if (spanMillis <= 0) return aggregationInterval.inMilliseconds.toDouble();
+
+      const int targetLabelCount = 6;
+      double desiredInterval = spanMillis / targetLabelCount;
+
+      if (desiredInterval < aggregationInterval.inMilliseconds.toDouble()) {
+          desiredInterval = aggregationInterval.inMilliseconds.toDouble();
+      }
+      
+      if (aggregationInterval.inMilliseconds > 0) {
+        double snappedInterval = ( (desiredInterval / aggregationInterval.inMilliseconds.toDouble()).round() * aggregationInterval.inMilliseconds.toDouble() );
+        if (snappedInterval > 0) return snappedInterval;
+      }
+
+      return desiredInterval > 0 ? desiredInterval : aggregationInterval.inMilliseconds.toDouble();
+  }
+
+  Widget _buildCandlestickChartSectionContent() {
+    final keyBase = 'candlestick_section_${_selectedSensorIdentifier}_${_historicalData.hashCode}_${_candlestickSpots.hashCode}_${_userSelectedAggregationInterval.hashCode}';
+    final activeAggregationInterval = _currentAggregationInterval;
+
+    Widget switcherChild; // 将 'content' 重命名为 'switcherChild' 以更清晰
+
+    if (_candlestickSpots.isEmpty && !_isLoading) {
+      String messageDetail = '当前数据量和选择的聚合周期 (${_formatDurationToLabel(activeAggregationInterval)}) 不足以形成有效的K线。\n请尝试：\n • 调整上方的时间范围。\n • 或选择一个更小的时间聚合周期 (如1小时K)。'; // 使用新的辅助函数
+      
+      switcherChild = SizedBox( // 这个分支已经有固定高度
+        key: ValueKey('${keyBase}_no_spots_detailed'),
+        height: 350,
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.candlestick_chart_outlined, size: 48, color: Theme.of(context).colorScheme.onSurfaceVariant),
+                const SizedBox(height: 16),
+                Text(
+                  '无法生成K线图',
+                  style: Theme.of(context).textTheme.titleMedium,
+                  textAlign: TextAlign.center, 
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  messageDetail,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.outline),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    } else if (_candlestickSpots.isNotEmpty) {
+      // 为包含K线图的分支也设置一个固定的高度
+      switcherChild = SizedBox(
+        key: ValueKey('${keyBase}_candlestick_chart_actual'), // 使用唯一的Key
+        height: 350, // 设定与 "no spots" 消息区域相似的高度
+        child: _buildActualCandlestickChart(),
+      );
+    } else {
+      switcherChild = SizedBox.shrink(key: ValueKey('${keyBase}_candlestick_shrink')); // 使用唯一的Key
+    }
+    
+    return Card(
+        elevation: 1,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+        child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 300),
+            transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(opacity: animation, child: child);
+            },
+            child: switcherChild, // 使用经过统一高度处理的子组件
+        ),
+    );
+  }
+
+  Widget _buildAnimatedChartContent(BuildContext context, List<List<FlSpot>> segmentedSpots, Color sensorColor, String chartDisplayTitle) {
+    if (_isLoading && _historicalData.isEmpty) {
+      return SizedBox(key: const ValueKey('hvs_line_chart_skeleton'), child: _buildChartAreaSkeleton(context));
+    } else if (_errorMessage != null) {
+      return Container(key: ValueKey('hvs_line_error_$_errorMessage'), child: _buildErrorState(context, _errorMessage!));
+    } else if (_selectedSensorIdentifier == null) {
+      return Container(key: const ValueKey('hvs_line_no_sensor_selected'), child: _buildMessageState(context, '请选择一个传感器', Icons.touch_app_outlined, details: '从上方的筛选区域中选择一个传感器以查看其历史数据。'));
+    } else if (_historicalData.isEmpty) {
+      return Container(key: const ValueKey('hvs_line_no_data'), child: _buildMessageState(context, '无历史数据 (折线图)', Icons.show_chart_rounded, details: '选定的传感器在指定的时间范围内没有数据记录。\n请尝试更改日期范围或选择其他传感器。'));
+    } else if (_minX == null || _maxX == null || segmentedSpots.every((segment) => segment.isEmpty)) {
+      return Container(key: const ValueKey('hvs_line_no_range_or_spots'), child: _buildMessageState(context, '数据不足或无法确定范围 (折线图)', Icons.error_outline, details: '数据可能有效，但不足以绘制折线图或确定显示范围。'));
+    } else {
+      return SingleChartCard(
+        key: ValueKey('hvs_line_chart_card_${_selectedSensorIdentifier}_${_historicalData.hashCode}_${_minX}_$_maxX'),
+        title: chartDisplayTitle,
+        segmentedSpots: segmentedSpots,
+        color: sensorColor,
+        minX: _minX!,
+        maxX: _maxX!,
+        sensorIdentifier: _selectedSensorIdentifier!,
+        xAxisLabelFormatter: (value, timestamp) {
+          final xSpanMillis = (_maxX! - _minX!);
+          if (xSpanMillis <= 0) return DateFormat('HH:mm:ss').format(timestamp);
+          
+          final xSpanDays = xSpanMillis / (1000 * 60 * 60 * 24);
+
+          if (xSpanDays <= 0.000694) {
+             return DateFormat('HH:mm:ss').format(timestamp);
+          } else if (xSpanDays <= 0.2) {
+            return DateFormat('HH:mm').format(timestamp);
+          } else if (xSpanDays <= 2) {
+            return DateFormat('dd HH:mm').format(timestamp);
+          } else if (xSpanDays <= 30) {
+             return DateFormat('MM-dd HH:mm').format(timestamp);
+          }
+          else {
+            return DateFormat('yy-MM-dd').format(timestamp);
+          }
+        },
+        highlightedXValue: _highlightedTimestamp?.millisecondsSinceEpoch.toDouble(),
+        highlightedValueType: _highlightedSensorValueType,
+        onChartTapped: _clearChartHighlight,
+      );
+    }
+  }
+
+  Widget _buildChartAreaSkeleton(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 8.0, top: 8.0, bottom: 4.0),
+            child: Container(
+              width: MediaQuery.of(context).size.width * 0.5,
+              height: 20,
+              decoration: BoxDecoration(
+                color: colorScheme.onSurface.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          const Divider(),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(8.0),
+              child: Container(
+                decoration: BoxDecoration(
+                  color: colorScheme.onSurface.withValues(alpha: 0.05),
+                  borderRadius: BorderRadius.circular(4),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final List<List<FlSpot>> segmentedSpots = _createSegmentedSpotsForSensor(_historicalData, _selectedSensorIdentifier);
     final sensorUnit = _getSensorUnit(_selectedSensorIdentifier);
     final chartTitleSuffix = sensorUnit.isNotEmpty ? ' ($sensorUnit)' : '';
-    final String chartDisplayTitle = _selectedSensorIdentifier != null 
-                                  ? '${_selectedSensorIdentifier!}$chartTitleSuffix - 历史数据'
-                                  : '历史数据图表';
+    final String lineChartDisplayTitle = _selectedSensorIdentifier != null 
+                                  ? '${_selectedSensorIdentifier!}$chartTitleSuffix - 详细趋势'
+                                  : '详细趋势图表';
     final sensorColor = _getSensorColor(context, _selectedSensorIdentifier);
-
-    const double chartContainerHeight = 300.0;
+    const double chartContainerHeight = 350.0; // 统一图表容器高度
     final appState = Provider.of<AppState>(context, listen: false);
 
     Widget statisticsAndInterpretationSection;
@@ -902,10 +1543,14 @@ class _HistoryVisualizationScreenState
                 return FadeTransition(opacity: animation, child: SizeTransition(sizeFactor: animation, child: child));
             },
             child: Container(
-              key: ValueKey('stats_content_${_isLoading}_${_historicalData.hashCode}_${_statistics.hashCode}'), 
+              key: ValueKey('stats_content_animated_${_isLoading}_${_statistics?.hashCode ?? "null"}'), 
               child: statisticsContent
             ),
         );
+
+        if (_statistics == null && !_isLoading) { 
+            return animatedStatsContent;
+        }
 
         if (isWideScreen && !_isLoading && _statistics != null) {
           return Row(
@@ -927,13 +1572,22 @@ class _HistoryVisualizationScreenState
               ),
             ],
           );
-        } else {
-          return Center(
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 700),
-              child: animatedStatsContent,
-            ),
-          );
+        } else if (!_isLoading && _statistics != null) {
+            return Column(
+                children: [
+                    Center(
+                        child: ConstrainedBox(
+                        constraints: const BoxConstraints(maxWidth: 700),
+                        child: animatedStatsContent,
+                        ),
+                    ),
+                    const SizedBox(height:16),
+                     _buildDataInterpretationPanel(context, _statistics!, appState.settings),
+                ]
+            );
+        }
+         else {
+          return animatedStatsContent;
         }
       },
     );
@@ -946,23 +1600,62 @@ class _HistoryVisualizationScreenState
           children: [
             _buildFilterSection(context),
             const SizedBox(height: 16),
-            SizedBox(
-              height: chartContainerHeight, 
-              child: Card(
-                elevation: 1,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300), 
-                    transitionBuilder: (Widget child, Animation<double> animation) {
-                      return FadeTransition(opacity: animation, child: child);
-                    },
-                    child: _buildAnimatedChartContent(context, segmentedSpots, sensorColor, chartDisplayTitle),
-                  ),
+            // 图表切换按钮
+            SegmentedButton<_ChartDisplayMode>(
+              segments: const <ButtonSegment<_ChartDisplayMode>>[
+                ButtonSegment<_ChartDisplayMode>(
+                  value: _ChartDisplayMode.line,
+                  label: Text('详细趋势'),
+                  icon: Icon(Icons.show_chart_rounded),
                 ),
+                ButtonSegment<_ChartDisplayMode>(
+                  value: _ChartDisplayMode.candlestick,
+                  label: Text('K线分析'),
+                  icon: Icon(Icons.candlestick_chart_outlined),
+                ),
+              ],
+              selected: <_ChartDisplayMode>{_currentChartDisplayMode},
+              onSelectionChanged: (Set<_ChartDisplayMode> newSelection) {
+                setState(() {
+                  _currentChartDisplayMode = newSelection.first;
+                });
+              },
+              style: SegmentedButton.styleFrom(
+                // visualDensity: VisualDensity.compact, // 使按钮更紧凑
               ),
             ),
+            const SizedBox(height: 8), // 按钮和图表之间的间距
+
+            // 使用AnimatedSwitcher来切换图表
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              transitionBuilder: (Widget child, Animation<double> animation) {
+                return FadeTransition(
+                  opacity: animation,
+                  child: SizeTransition(sizeFactor: animation, axisAlignment: -1.0, child: child),
+                );
+              },
+              child: _currentChartDisplayMode == _ChartDisplayMode.line
+                  ? SizedBox( // 包裹在SizedBox中以提供Key和固定高度
+                      key: const ValueKey('line_chart_container'),
+                      height: chartContainerHeight, 
+                      child: Card(
+                        elevation: 1,
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          // _buildAnimatedChartContent 内部已经有 AnimatedSwitcher，这里不再嵌套
+                          child: _buildAnimatedChartContent(context, segmentedSpots, sensorColor, lineChartDisplayTitle),
+                        ),
+                      ),
+                    )
+                  : SizedBox( // 包裹在SizedBox中以提供Key和固定高度
+                      key: const ValueKey('candlestick_chart_container'),
+                      height: chartContainerHeight, // 确保K线图也有同样的高度
+                      child: _buildCandlestickChartSectionContent(), // 这个函数返回一个 Card
+                    ),
+            ),
+            const SizedBox(height: 16),
             statisticsAndInterpretationSection,
           ],
         ),
@@ -990,6 +1683,7 @@ class _HistoryVisualizationScreenState
     _endDateController.text = _dateFormat.format(endDate);
     setState(() {
       _activeQuickRangeDuration = duration;
+      _userSelectedAggregationInterval = null;
     });
     _loadHistoricalData();
   }
@@ -1002,6 +1696,7 @@ class _HistoryVisualizationScreenState
       child: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column( 
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Padding(
               padding: const EdgeInsets.only(bottom: 12.0),
@@ -1020,7 +1715,7 @@ class _HistoryVisualizationScreenState
                   Wrap(
                     spacing: 8.0,
                     runSpacing: 8.0,
-                    alignment: WrapAlignment.start,
+                    alignment: WrapAlignment.center, // 修改：居中对齐传感器选择
                     children: _availableSensors.map((sensor) {
                       final bool isSelected = _selectedSensorIdentifier == sensor;
                       return ChoiceChip(
@@ -1031,7 +1726,6 @@ class _HistoryVisualizationScreenState
                             setState(() {
                               _selectedSensorIdentifier = sensor;
                             });
-                            Provider.of<AppState>(context, listen: false).navigateTo(1, sensorIdentifier: sensor);
                             _loadHistoricalData();
                           }
                         },
@@ -1041,9 +1735,9 @@ class _HistoryVisualizationScreenState
                             : Theme.of(context).textTheme.labelLarge,
                         side: isSelected 
                             ? BorderSide.none 
-                            : BorderSide(color: Theme.of(context).colorScheme.outline),
+                            : BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.7)),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16.0),
+                          borderRadius: BorderRadius.circular(8.0),
                         ),
                         padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                         showCheckmark: false, 
@@ -1082,11 +1776,13 @@ class _HistoryVisualizationScreenState
                                 setState(() { _activeQuickRangeDuration = null; });
                               },
                               tooltip: '清除起始日期',
+                              padding: EdgeInsets.zero, constraints: const BoxConstraints(),
                             ),
                           IconButton(
                             icon: const Icon(Icons.calendar_today, size: 18),
                             onPressed: () => _selectDateTime(context, _startDateController),
                             tooltip: '选择起始日期',
+                            padding: EdgeInsets.zero, constraints: const BoxConstraints(),
                           ),
                         ],
                       ),
@@ -1116,11 +1812,13 @@ class _HistoryVisualizationScreenState
                                 setState(() { _activeQuickRangeDuration = null; });
                               },
                               tooltip: '清除结束日期',
+                              padding: EdgeInsets.zero, constraints: const BoxConstraints(),
                             ),
                           IconButton(
                             icon: const Icon(Icons.calendar_today, size: 18),
                             onPressed: () => _selectDateTime(context, _endDateController),
                             tooltip: '选择结束日期',
+                            padding: EdgeInsets.zero, constraints: const BoxConstraints(),
                           ),
                         ],
                       ),
@@ -1131,18 +1829,19 @@ class _HistoryVisualizationScreenState
                 ),
                 FilledButton.tonalIcon(
                   onPressed: _isLoading ? null : _loadHistoricalData,
-                  icon: const Icon(Icons.search, size: 18),
+                  icon: _isLoading ? const SizedBox(width:18, height:18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search, size: 18),
                   label: const Text('查询'),
+                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10)),
                 ),
                 TextButton(
                   onPressed: _isLoading
                       ? null
                       : () {
-                          _setDefaultDateRange(); 
+                          _setDefaultDateRange();
                           setState(() {
                              _activeQuickRangeDuration = null;
+                             _userSelectedAggregationInterval = null;
                           });
-                          _loadHistoricalData();
                         },
                   child: const Text('重置 (默认7天)'),
                 ),
@@ -1152,13 +1851,13 @@ class _HistoryVisualizationScreenState
             Wrap(
               spacing: 8.0,
               runSpacing: 8.0,
-              alignment: WrapAlignment.center,
+              alignment: WrapAlignment.center, // 修改：居中对齐快捷范围按钮
               children: [
                 OutlinedButton(
                   onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 1)),
                   style: OutlinedButton.styleFrom(
                     backgroundColor: _activeQuickRangeDuration == const Duration(hours: 1)
-                        ? Theme.of(context).colorScheme.primaryContainer
+                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
                         : null,
                   ),
                   child: const Text('最近1小时')
@@ -1167,7 +1866,7 @@ class _HistoryVisualizationScreenState
                   onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 6)),
                   style: OutlinedButton.styleFrom(
                     backgroundColor: _activeQuickRangeDuration == const Duration(hours: 6)
-                        ? Theme.of(context).colorScheme.primaryContainer
+                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
                         : null,
                   ),
                   child: const Text('最近6小时')
@@ -1176,7 +1875,7 @@ class _HistoryVisualizationScreenState
                   onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 1), startOfDay: true),
                   style: OutlinedButton.styleFrom(
                     backgroundColor: _activeQuickRangeDuration == const Duration(days: 1) && _activeQuickRangeDuration != const Duration(days: 0)
-                        ? Theme.of(context).colorScheme.primaryContainer
+                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
                         : null,
                   ),
                   child: const Text('今天')
@@ -1185,7 +1884,7 @@ class _HistoryVisualizationScreenState
                   onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 0)),
                   style: OutlinedButton.styleFrom(
                     backgroundColor: _activeQuickRangeDuration == const Duration(days: 0)
-                        ? Theme.of(context).colorScheme.primaryContainer
+                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
                         : null,
                   ),
                   child: const Text('昨天')
@@ -1194,7 +1893,7 @@ class _HistoryVisualizationScreenState
                   onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 7)),
                   style: OutlinedButton.styleFrom(
                     backgroundColor: _activeQuickRangeDuration == const Duration(days: 7)
-                        ? Theme.of(context).colorScheme.primaryContainer
+                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
                         : null,
                   ),
                   child: const Text('最近7天')
@@ -1203,7 +1902,7 @@ class _HistoryVisualizationScreenState
                   onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 30)),
                   style: OutlinedButton.styleFrom(
                     backgroundColor: _activeQuickRangeDuration == const Duration(days: 30)
-                        ? Theme.of(context).colorScheme.primaryContainer
+                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
                         : null,
                   ),
                   child: const Text('最近30天')
@@ -1214,88 +1913,6 @@ class _HistoryVisualizationScreenState
         ),
       ),
     );
-  }
-
-  Widget _buildChartAreaSkeleton(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      child: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(left: 8.0, top: 8.0, bottom: 4.0),
-              child: Container(
-                width: MediaQuery.of(context).size.width * 0.5,
-                height: 20,
-                color: colorScheme.onSurface.withOpacity(0.1),
-              ),
-            ),
-            const Divider(),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(8.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: colorScheme.onSurface.withOpacity(0.05),
-                    borderRadius: BorderRadius.circular(4),
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAnimatedChartContent(BuildContext context, List<List<FlSpot>> segmentedSpots, Color sensorColor, String chartDisplayTitle) {
-    if (_isLoading) {
-      return SizedBox(key: const ValueKey('hvs_chart_skeleton'), child: _buildChartAreaSkeleton(context));
-    } else if (_errorMessage != null) {
-      return Container(key: ValueKey('hvs_error_$_errorMessage'), child: _buildErrorState(context, _errorMessage!));
-    } else if (_selectedSensorIdentifier == null) {
-      return Container(key: const ValueKey('hvs_no_sensor_selected'), child: _buildMessageState(context, '请选择一个传感器', Icons.touch_app_outlined, details: '从上方的下拉菜单中选择一个传感器以查看其历史数据。'));
-    } else if (_historicalData.isEmpty) {
-      return Container(key: const ValueKey('hvs_no_data'), child: _buildMessageState(context, '无历史数据', Icons.sentiment_dissatisfied_outlined, details: '选定的传感器在指定的时间范围内没有数据记录。\n请尝试更改日期范围或选择其他传感器。'));
-    } else if (_minX == null || _maxX == null) {
-      return Container(key: const ValueKey('hvs_no_range'), child: _buildMessageState(context, '无法确定图表范围', Icons.error_outline, details: '数据有效，但无法确定有效的图表显示范围。请尝试调整时间。'));
-    } else {
-      return SingleChartCard(
-        key: ValueKey('hvs_chart_card_${_selectedSensorIdentifier}_${_historicalData.hashCode}_${_minX}_$_maxX'),
-        title: chartDisplayTitle,
-        segmentedSpots: segmentedSpots,
-        color: sensorColor,
-        minX: _minX!,
-        maxX: _maxX!,
-        sensorIdentifier: _selectedSensorIdentifier!,
-        xAxisLabelFormatter: (value, timestamp) {
-          final xSpanMillis = (_maxX! - _minX!);
-          if (xSpanMillis <= 0) return DateFormat('HH:mm:ss').format(timestamp);
-          
-          final xSpanDays = xSpanMillis / (1000 * 60 * 60 * 24);
-
-          if (xSpanDays <= 0.000694) {
-             return DateFormat('HH:mm:ss').format(timestamp);
-          } else if (xSpanDays <= 0.2) {
-            return DateFormat('HH:mm').format(timestamp);
-          } else if (xSpanDays <= 2) {
-            return DateFormat('dd HH:mm').format(timestamp);
-          } else if (xSpanDays <= 30) {
-             return DateFormat('MM-dd HH:mm').format(timestamp);
-          }
-          else {
-            return DateFormat('yy-MM-dd').format(timestamp);
-          }
-        },
-        highlightedXValue: _highlightedTimestamp?.millisecondsSinceEpoch.toDouble(),
-        highlightedValueType: _highlightedSensorValueType,
-        onChartTapped: _clearChartHighlight,
-      );
-    }
   }
 
   double? _calculateFeelsLikeTemperature(double tempC, double rhPercent) {

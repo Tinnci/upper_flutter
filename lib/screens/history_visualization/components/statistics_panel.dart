@@ -222,10 +222,10 @@ class StatisticsPanelWidget extends StatelessWidget {
     // or passed as direct parameters if they are not part of AppSettings.
     // For demonstration, I'll use the literal values from the original code.
     // In a real refactor, these would be better managed.
-    const double _noiseWarningFactor = 0.75; // Placeholder
-    const double _tempHighWarningFactor = 0.9; // Placeholder
-    const double _humidityHighWarningFactor = 0.9; // Placeholder
-    const double _tempLowWarningOffset = 2.0; // Placeholder
+    // const double _noiseWarningFactor = 0.75; // REMOVE THIS
+    // const double _tempHighWarningFactor = 0.9; // REMOVE THIS
+    // const double _humidityHighWarningFactor = 0.9; // REMOVE THIS
+    // const double _tempLowWarningOffset = 2.0; // REMOVE THIS
 
 
     if (highErrorThreshold != null && currentValue > highErrorThreshold) {
@@ -556,7 +556,7 @@ class StatisticsPanelWidget extends StatelessWidget {
     final theme = Theme.of(context);
     final dateFormat = DateFormat('MM-dd HH:mm:ss');
 
-    // Constants for warning factors/offsets - ensure these are correctly sourced or defined
+    // Constants for warning factors/offsets - these are used by _buildVisualStatTile
     const double _noiseWarningFactor = 0.75;
     const double _tempHighWarningFactor = 0.9;
     const double _humidityHighWarningFactor = 0.9;
