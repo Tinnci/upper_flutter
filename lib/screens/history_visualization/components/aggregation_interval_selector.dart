@@ -46,8 +46,9 @@ class AggregationIntervalSelector extends StatelessWidget {
         onSelectionChanged(newSelection.first);
       },
       style: SegmentedButton.styleFrom(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0),
-        textStyle: theme.textTheme.labelSmall,
+        padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+        textStyle: theme.textTheme.labelSmall?.copyWith(fontSize: 10),
+        visualDensity: VisualDensity.compact,
       ),
       showSelectedIcon: false,
     );

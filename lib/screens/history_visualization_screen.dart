@@ -1096,31 +1096,57 @@ class _HistoryVisualizationScreenState
         }
     }
     
-    final String chartTitle = '${_selectedSensorIdentifier ?? "数据"} - ${_formatDurationToLabel(activeAggregationInterval)}'; // 使用新的辅助函数
+    final String chartTitle = '${_selectedSensorIdentifier ?? "数据"} - ${_formatDurationToLabel(activeAggregationInterval)}'; 
     final Color candleUpColor = Theme.of(context).colorScheme.primary;
     final Color candleDownColor = Theme.of(context).colorScheme.error;
+
+    // 获取屏幕宽度以决定布局
+    final screenWidth = MediaQuery.of(context).size.width;
+    const double narrowScreenWidthThreshold = 400.0; // 定义窄屏幕的阈值
+
+    Widget titleAndSelector;
+
+    if (screenWidth < narrowScreenWidthThreshold) {
+      // 窄屏幕：垂直排列
+      titleAndSelector = Column(
+        crossAxisAlignment: CrossAxisAlignment.center, // 居中对齐列内容
+        children: [
+          Text(
+            chartTitle,
+            style: Theme.of(context).textTheme.titleMedium,
+            textAlign: TextAlign.center,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 8), // 标题和选择器之间的间距
+          _buildAggregationIntervalSelector(),
+        ],
+      );
+    } else {
+      // 宽屏幕：水平排列
+      titleAndSelector = Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          Expanded(
+            child: Text(
+              chartTitle,
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 8),
+          _buildAggregationIntervalSelector(),
+        ],
+      );
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.only(left: 8.0, right: 8.0, bottom: 8.0, top:8.0),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              Expanded(
-                child: Text(
-                  chartTitle,
-                  style: Theme.of(context).textTheme.titleMedium,
-                  textAlign: TextAlign.center,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              const SizedBox(width: 8),
-              _buildAggregationIntervalSelector(), // 调用现在会构建 AggregationIntervalSelector 组件
-            ],
-          ),
+          child: titleAndSelector, // 使用动态构建的 titleAndSelector
         ),
         Expanded(
           child: CandlestickChart(
@@ -1544,7 +1570,7 @@ class _HistoryVisualizationScreenState
         Widget animatedStatsContent = AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             transitionBuilder: (Widget child, Animation<double> animation) {
-                return FadeTransition(opacity: animation, child: SizeTransition(sizeFactor: animation, child: child));
+                return FadeTransition(opacity: animation, child: child);
             },
             child: Container(
               key: ValueKey('stats_content_animated_${_isLoading}_${_statistics?.hashCode ?? "null"}'), 
