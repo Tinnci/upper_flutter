@@ -1,16 +1,47 @@
-# upper_flutter
+# 环境监测上位机 (Environment Monitor Upper Computer)
 
-A new Flutter project.
+一款基于 Flutter 开发的环境监测上位机应用程序，用于实时显示和记录多种传感器数据，并提供数据可视化和管理功能。
 
-## Getting Started
+## 主要功能
 
-This project is a starting point for a Flutter application.
+*   **实时数据显示**: 清晰展示来自TCP/IP或蓝牙BLE连接的传感器数据，包括噪声、温度、湿度和光照强度。
+*   **数据可视化**:
+    *   实时动态图表展示最近60秒的传感器数据。
+    *   历史数据图表，支持自定义时间范围查询和传感器选择。
+    *   统计数据分析，包括最大/小值、平均值、中位数和趋势。
+    *   智能数据解读，提供基于阈值的健康提示和舒适度分析。
+*   **数据管理**:
+    *   本地 SQLite 数据库存储历史传感器读数。
+    *   支持按时间范围查询、清空所有数据、删除指定天数前的数据。
+*   **设备控制 (BLE)**:
+    *   远程控制连接设备的LED指示灯、蜂鸣器、屏幕开关。
+    *   调节屏幕亮度。
+*   **个性化设置**:
+    *   主题模式切换 (浅色/深色/跟随系统)。
+    *   动态颜色 (Material You) 支持。
+    *   自定义数据显示阈值。
+    *   网络连接参数配置。
+    *   蓝牙扫描和连接选项。
+*   **跨平台支持**: 设计时考虑了桌面 (Windows, Linux, macOS) 和移动平台 (Android, iOS)。
 
-A few resources to get you started if this is your first Flutter project:
+## 技术栈 (部分)
 
-- [Lab: Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Cookbook: Useful Flutter samples](https://docs.flutter.dev/cookbook)
+*   **Flutter**: 跨平台UI框架
+*   **Provider**: 状态管理
+*   **sqflite / sqflite_common_ffi**: 本地数据库存储
+*   **fl_chart**: 图表绘制
+*   **intl**: 国际化与日期格式化
+*   **dynamic_color**: Material You 动态颜色
+*   **universal_ble**: 蓝牙低功耗通信 (部分平台)
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## 如何开始
+
+这是一个标准的 Flutter 项目。
+
+1.  确保您已正确安装 Flutter SDK (推荐最新稳定版)。
+2.  克隆项目到本地。
+3.  进入项目根目录，运行 `flutter pub get` 安装依赖。
+4.  连接您的目标设备或启动模拟器/桌面构建。
+5.  运行 `flutter run` 启动应用。
+
+---
