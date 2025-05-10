@@ -332,68 +332,72 @@ class _DbManagementScreenState extends State<DbManagementScreen> {
 
   Widget _buildFilterSection(BuildContext context) {
     final bool isSmallScreen = MediaQuery.of(context).size.width < 600;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8.0), // Add vertical padding
-      child: Wrap(
-        spacing: 12.0, // Consistent spacing
-        runSpacing: 12.0,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          ConstrainedBox( // Use ConstrainedBox for text fields
-            constraints: BoxConstraints(maxWidth: isSmallScreen ? 150 : 200),
-            child: TextField(
-              controller: _startDateController,
-              decoration: InputDecoration(
-                labelText: '起始日期',
-                hintText: '选择日期时间',
-                isDense: true,
-                suffixIcon: IconButton(
-                  icon: const Icon(Icons.calendar_today, size: 18),
-                  onPressed: () => _selectDateTime(context, _startDateController),
-                  tooltip: '选择起始日期',
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Wrap(
+          spacing: 12.0,
+          runSpacing: 12.0,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            ConstrainedBox(
+              constraints: BoxConstraints(maxWidth: isSmallScreen ? 150 : 200),
+              child: TextField(
+                controller: _startDateController,
+                decoration: InputDecoration(
+                  labelText: '起始日期',
+                  hintText: '选择日期时间',
+                  isDense: true,
+                  suffixIcon: IconButton(
+                    icon: const Icon(Icons.calendar_today, size: 18),
+                    onPressed: () => _selectDateTime(context, _startDateController),
+                    tooltip: '选择起始日期',
+                  ),
                 ),
+                readOnly: true,
               ),
-              readOnly: true,
             ),
-          ),
-          ConstrainedBox(
-             constraints: BoxConstraints(maxWidth: isSmallScreen ? 150 : 200),
-             child: TextField(
-              controller: _endDateController,
-              decoration: InputDecoration(
-                labelText: '结束日期',
-                hintText: '选择日期时间',
-                isDense: true,
-                 suffixIcon: IconButton(
-                   icon: const Icon(Icons.calendar_today, size: 18),
-                   onPressed: () => _selectDateTime(context, _endDateController),
-                   tooltip: '选择结束日期',
-                 ),
+            ConstrainedBox(
+               constraints: BoxConstraints(maxWidth: isSmallScreen ? 150 : 200),
+               child: TextField(
+                controller: _endDateController,
+                decoration: InputDecoration(
+                  labelText: '结束日期',
+                  hintText: '选择日期时间',
+                  isDense: true,
+                   suffixIcon: IconButton(
+                     icon: const Icon(Icons.calendar_today, size: 18),
+                     onPressed: () => _selectDateTime(context, _endDateController),
+                     tooltip: '选择结束日期',
+                   ),
+                ),
+                readOnly: true,
               ),
-              readOnly: true,
             ),
-          ),
-          // Use FilledButton.tonal for search
-          FilledButton.tonalIcon( 
-            onPressed: _isLoading ? null : () {
-              _loadData(
-                startDate: _startDateController.text.isNotEmpty ? _startDateController.text : null,
-                endDate: _endDateController.text.isNotEmpty ? _endDateController.text : null,
-              );
-            },
-            icon: const Icon(Icons.search, size: 18),
-            label: const Text('搜索'),
-          ),
-          // Use TextButton for less prominent action
-           TextButton( 
-             onPressed: _isLoading ? null : () {
-               _startDateController.clear();
-               _endDateController.clear();
-               _loadData(); // Load default (latest 1000) after clearing
-             },
-             child: const Text('清除条件'),
-           ),
-        ],
+            // Use FilledButton.tonal for search
+            FilledButton.tonalIcon( 
+              onPressed: _isLoading ? null : () {
+                _loadData(
+                  startDate: _startDateController.text.isNotEmpty ? _startDateController.text : null,
+                  endDate: _endDateController.text.isNotEmpty ? _endDateController.text : null,
+                );
+              },
+              icon: const Icon(Icons.search, size: 18),
+              label: const Text('搜索'),
+            ),
+            // Use TextButton for less prominent action
+             TextButton( 
+               onPressed: _isLoading ? null : () {
+                 _startDateController.clear();
+                 _endDateController.clear();
+                 _loadData(); // Load default (latest 1000) after clearing
+               },
+               child: const Text('清除条件'),
+             ),
+          ],
+        ),
       ),
     );
   }

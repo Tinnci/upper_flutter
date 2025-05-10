@@ -879,7 +879,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: isSmallScreen ? 12.0 : 16.0),
+        padding: const EdgeInsets.all(16.0),
         child: Center(
           child: Container(
              constraints: const BoxConstraints(
@@ -1115,7 +1115,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: Padding(
-        padding: const EdgeInsets.all(12.0),
+        padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

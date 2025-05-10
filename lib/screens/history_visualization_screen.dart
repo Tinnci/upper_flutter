@@ -1798,7 +1798,7 @@ class _HistoryVisualizationScreenState
                 elevation: 1,
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
                 child: Padding(
-                  padding: const EdgeInsets.all(8.0),
+                  padding: const EdgeInsets.all(16.0), // <--- MODIFIED HERE
                   child: AnimatedSwitcher(
                     duration: const Duration(milliseconds: 300), 
                     transitionBuilder: (Widget child, Animation<double> animation) {
@@ -1847,7 +1847,7 @@ class _HistoryVisualizationScreenState
       elevation: 1,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
       child: Padding(
-        padding: const EdgeInsets.all(12.0),
+        padding: const EdgeInsets.all(16.0), // <--- MODIFIED HERE
         child: Column( 
           children: [
             // Sensor Selection Chips
@@ -1978,7 +1978,7 @@ class _HistoryVisualizationScreenState
                     style: const TextStyle(fontSize: 14),
                   ),
                 ),
-                FilledButton.icon(
+                FilledButton.tonalIcon( // <--- 修改点：将 FilledButton.icon 修改为 FilledButton.tonalIcon
                   onPressed: _isLoading ? null : _loadHistoricalData,
                   icon: const Icon(Icons.search, size: 18),
                   label: const Text('查询'),
