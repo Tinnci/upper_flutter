@@ -1418,7 +1418,18 @@ class _HistoryVisualizationScreenState
   // --- END OF UPDATED STATISTICS PANEL AND HELPERS ---
 
   // 新增方法：构建单个解读卡片
-  Widget _buildInterpretationCard(BuildContext context, String title, String text, IconData iconData, Color iconColor, {Color? cardColor}) {
+  Widget _buildInterpretationCard(
+    BuildContext context, 
+    String title, 
+    String text, 
+    IconData iconData, 
+    Color iconColor, 
+    {
+      Color? cardColor, // 卡片背景色
+      Color? titleColor, // 标题文字颜色
+      Color? textColor,  // 正文文字颜色
+    }
+  ) {
     final theme = Theme.of(context);
     return Card(
       elevation: 0,
@@ -1436,9 +1447,19 @@ class _HistoryVisualizationScreenState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onSurface)),
+                  Text(
+                    title, 
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: titleColor ?? theme.colorScheme.onSurface
+                    )
+                  ),
                   const SizedBox(height: 4),
-                  Text(text, style: theme.textTheme.bodyMedium?.copyWith(color: theme.colorScheme.onSurfaceVariant)),
+                  Text(
+                    text, 
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: textColor ?? theme.colorScheme.onSurfaceVariant
+                    )
+                  ),
                 ],
               ),
             ),
@@ -1461,7 +1482,10 @@ class _HistoryVisualizationScreenState
     final avgNoise = statistics['average'] as double?;
     if (avgNoise != null && _selectedSensorIdentifier == '噪声') {
       String noiseText;
-      Color highlightColor = theme.colorScheme.onSurfaceVariant;
+      Color effectiveIconColor = theme.colorScheme.onSurfaceVariant;
+      Color effectiveTitleColor = theme.colorScheme.onSurface;
+      Color effectiveTextColor = theme.colorScheme.onSurfaceVariant;
+      Color? effectiveCardColor; // 默认使用 _buildInterpretationCard 的默认背景
       IconData icon = Icons.check_circle_outline_rounded; // Using rounded icons
 
       String comparisonText = "";
@@ -1474,16 +1498,33 @@ class _HistoryVisualizationScreenState
 
       if (avgNoise > settings.noiseThresholdHigh) {
         noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，已超过 ${settings.noiseThresholdHigh.toStringAsFixed(1)} dB 的高阈值。$comparisonText长时间暴露可能损害听力，请注意防护。";
-        highlightColor = theme.colorScheme.error;
+        effectiveCardColor = theme.colorScheme.errorContainer; // 不透明
+        effectiveIconColor = theme.colorScheme.onErrorContainer;
+        effectiveTitleColor = theme.colorScheme.onErrorContainer;
+        effectiveTextColor = theme.colorScheme.onErrorContainer;
         icon = Icons.warning_amber_rounded;
       } else if (avgNoise > settings.noiseThresholdHigh * 0.8) { // 例如，超过阈值的80%作为提醒
         noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，接近高阈值 (${settings.noiseThresholdHigh.toStringAsFixed(1)} dB)。$comparisonText建议关注噪音变化。";
-        highlightColor = theme.colorScheme.tertiary; // Material 3 警示色
+        // 对于警告级别，可以考虑使用 tertiaryContainer 或 secondaryContainer (如果主题适配)
+        effectiveCardColor = theme.colorScheme.tertiaryContainer; // 不透明
+        effectiveIconColor = theme.colorScheme.onTertiaryContainer;
+        effectiveTitleColor = theme.colorScheme.onTertiaryContainer;
+        effectiveTextColor = theme.colorScheme.onTertiaryContainer;
         icon = Icons.info_outline_rounded;
       } else {
         noiseText = "平均噪音 ${_formatStatValue(avgNoise)} dB，低于高阈值。$comparisonText目前环境的噪音水平通常被认为是安全的。";
+        // 默认颜色由 _buildInterpretationCard 内部处理
       }
-      interpretations.add(_buildInterpretationCard(context, "听力健康提示", noiseText, icon, highlightColor));
+      interpretations.add(_buildInterpretationCard(
+        context, 
+        "听力健康提示", 
+        noiseText, 
+        icon, 
+        effectiveIconColor,
+        cardColor: effectiveCardColor,
+        titleColor: effectiveTitleColor,
+        textColor: effectiveTextColor,
+      ));
     }
 
     // 2. 温度解读
@@ -1491,7 +1532,11 @@ class _HistoryVisualizationScreenState
     if (avgTemp != null && _selectedSensorIdentifier == '温度') {
       String tempText;
       IconData icon = Icons.thermostat_rounded;
-      Color cardColor = theme.colorScheme.surfaceContainerHighest; 
+      Color effectiveIconColor = theme.colorScheme.primary; // 默认图标颜色
+      Color effectiveTitleColor = theme.colorScheme.onSurface;
+      Color effectiveTextColor = theme.colorScheme.onSurfaceVariant;
+      Color? effectiveCardColor;
+
 
       String comparisonText = "";
       if (previousPeriodAvg != null) {
@@ -1529,20 +1574,36 @@ class _HistoryVisualizationScreenState
       if (avgTemp > settings.temperatureThresholdHigh) {
         tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，高于设定的 ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C 高温阈值，环境可能偏热。$comparisonText$feelsLikeText";
         icon = Icons.local_fire_department_rounded;
-        cardColor = theme.colorScheme.errorContainer.withAlpha(77); // withOpacity(0.3)
+        effectiveCardColor = theme.colorScheme.errorContainer; // 不透明
+        effectiveIconColor = theme.colorScheme.onErrorContainer;
+        effectiveTitleColor = theme.colorScheme.onErrorContainer;
+        effectiveTextColor = theme.colorScheme.onErrorContainer;
       } else if (avgTemp < settings.temperatureThresholdLow) {
         tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，低于设定的 ${settings.temperatureThresholdLow.toStringAsFixed(1)}°C 低温阈值，环境可能偏冷。$comparisonText$feelsLikeText";
         icon = Icons.ac_unit_rounded;
-        cardColor = theme.colorScheme.primaryContainer.withAlpha(77); // withOpacity(0.3)
+        effectiveCardColor = theme.colorScheme.primaryContainer; // 不透明 (假设用 primaryContainer 表示低温关注)
+        effectiveIconColor = theme.colorScheme.onPrimaryContainer;
+        effectiveTitleColor = theme.colorScheme.onPrimaryContainer;
+        effectiveTextColor = theme.colorScheme.onPrimaryContainer;
       } else {
         tempText = "平均温度 ${_formatStatValue(avgTemp)}°C，在您设定的舒适范围内 (${settings.temperatureThresholdLow.toStringAsFixed(1)}°C - ${settings.temperatureThresholdHigh.toStringAsFixed(1)}°C)。$comparisonText$feelsLikeText";
+        // 默认颜色，图标颜色也用默认的 effectiveIconColor
       }
       // If feelsLikeText is still empty but we wanted to show something, could add a default message.
       // For instance, if avgHumidityForFeelsLike was null:
       // if (feelsLikeText.isEmpty && avgHumidityForFeelsLike == null) { 
       //   tempText += " (湿度数据不足无法计算体感温度)"; 
       // }
-      interpretations.add(_buildInterpretationCard(context, "温度舒适度", tempText, icon, theme.colorScheme.primary, cardColor: cardColor));
+      interpretations.add(_buildInterpretationCard(
+        context, 
+        "温度舒适度", 
+        tempText, 
+        icon, 
+        effectiveIconColor, 
+        cardColor: effectiveCardColor,
+        titleColor: effectiveTitleColor,
+        textColor: effectiveTextColor,
+      ));
     }
     
     // 3. 湿度解读
@@ -1550,7 +1611,10 @@ class _HistoryVisualizationScreenState
       if (avgHumidity != null && _selectedSensorIdentifier == '湿度') {
       String humidityText;
       IconData icon = Icons.water_drop_outlined;
-       Color cardColor = theme.colorScheme.surfaceContainerHighest;
+      Color effectiveIconColor = theme.colorScheme.tertiary; // 默认图标颜色
+      Color effectiveTitleColor = theme.colorScheme.onSurface;
+      Color effectiveTextColor = theme.colorScheme.onSurfaceVariant;
+      Color? effectiveCardColor;
 
       String comparisonText = "";
       if (previousPeriodAvg != null) {
@@ -1563,15 +1627,30 @@ class _HistoryVisualizationScreenState
       if (avgHumidity > settings.humidityThresholdHigh) {
           humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，高于 ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 的高湿阈值，环境可能过于潮湿。$comparisonText";
           icon = Icons.opacity_rounded; 
-          cardColor = theme.colorScheme.tertiaryContainer.withAlpha(77); // withOpacity(0.3)
+          effectiveCardColor = theme.colorScheme.tertiaryContainer; // 不透明 (用 tertiaryContainer 匹配图标颜色)
+          effectiveIconColor = theme.colorScheme.onTertiaryContainer;
+          effectiveTitleColor = theme.colorScheme.onTertiaryContainer;
+          effectiveTextColor = theme.colorScheme.onTertiaryContainer;
       } else if (avgHumidity < settings.humidityThresholdLow) {
           humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，低于 ${settings.humidityThresholdLow.toStringAsFixed(1)}% 的低湿阈值，环境可能过于干燥。$comparisonText";
           icon = Icons.waves_rounded; 
-           cardColor = theme.colorScheme.secondaryContainer.withAlpha(77); // withOpacity(0.3)
+          effectiveCardColor = theme.colorScheme.secondaryContainer; // 不透明 (用 secondaryContainer 示例)
+          effectiveIconColor = theme.colorScheme.onSecondaryContainer;
+          effectiveTitleColor = theme.colorScheme.onSecondaryContainer;
+          effectiveTextColor = theme.colorScheme.onSecondaryContainer;
       } else {
           humidityText = "平均湿度 ${_formatStatValue(avgHumidity)}%，在您设定的 ${settings.humidityThresholdLow.toStringAsFixed(1)}% - ${settings.humidityThresholdHigh.toStringAsFixed(1)}% 舒适湿度范围内。$comparisonText";
       }
-      interpretations.add(_buildInterpretationCard(context, "湿度状况", humidityText, icon, theme.colorScheme.tertiary, cardColor: cardColor));
+      interpretations.add(_buildInterpretationCard(
+        context, 
+        "湿度状况", 
+        humidityText, 
+        icon, 
+        effectiveIconColor, 
+        cardColor: effectiveCardColor,
+        titleColor: effectiveTitleColor,
+        textColor: effectiveTextColor,
+      ));
       }
 
     // 4. 光照解读 (示例)

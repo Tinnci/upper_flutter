@@ -10,6 +10,7 @@ import 'package:fl_chart/fl_chart.dart'; // 需要 FlSpot
 import '../models/sensor_data.dart'; // 需要 SensorData
 import 'package:flutter/scheduler.dart'; // 导入 TickerProviderStateMixin
 import 'history_visualization_screen.dart'; // <--- 添加此导入
+import '../themes/custom_colors.dart'; // <--- 修改导入路径以匹配项目结构 (如果需要)
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -96,18 +97,22 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
         IconData icon;
         Color bgColor;
         Color fgColor;
+        final theme = Theme.of(context); // 获取当前主题
+        final successColors = theme.extension<CustomSuccessColors>(); // 尝试获取自定义成功颜色
+
         if (connecting) {
             icon = Icons.sync; // Or use a CircularProgressIndicator inside
-            bgColor = Theme.of(context).colorScheme.secondaryContainer;
-            fgColor = Theme.of(context).colorScheme.onSecondaryContainer;
+            bgColor = theme.colorScheme.secondaryContainer;
+            fgColor = theme.colorScheme.onSecondaryContainer;
         } else if (connected) {
             icon = Icons.check_circle;
-            bgColor = Colors.green.shade100;
-            fgColor = Colors.green.shade900;
+            // 使用语义化的成功颜色，如果可用
+            bgColor = successColors?.successContainer ?? Colors.green.shade100; // 回退到之前的颜色
+            fgColor = successColors?.onSuccessContainer ?? Colors.green.shade900; // 回退到之前的颜色
         } else {
             icon = Icons.cancel;
-            bgColor = Theme.of(context).colorScheme.errorContainer;
-            fgColor = Theme.of(context).colorScheme.onErrorContainer;
+            bgColor = theme.colorScheme.errorContainer;
+            fgColor = theme.colorScheme.onErrorContainer;
         }
         return Chip(
             avatar: Icon(icon, size: 16, color: fgColor),
@@ -902,9 +907,12 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                    data?.temperature.toStringAsFixed(1) ?? '--',
                    // 使用 settings 中的阈值
                    valueColor: data != null && data.temperature > settings.temperatureThresholdHigh
-                                 ? colorScheme.error 
-                                 : (data != null && data.temperature < settings.temperatureThresholdLow 
-                                    ? Colors.blue.shade300 
+                                 ? colorScheme.error
+                                 : (data != null && data.temperature < settings.temperatureThresholdLow
+                                    // 建议: 使用颜色对比度工具检查 colorScheme.tertiary 
+                                    // 与 ListTile 背景色的对比度是否满足 WCAG AA 标准。
+                                    // 如果不足，考虑使用对比度更高的颜色。
+                                    ? colorScheme.tertiary 
                                     : null),
                    highlight: data != null && (data.temperature > (settings.temperatureThresholdHigh - 5) || data.temperature < (settings.temperatureThresholdLow + 5)), // 例如，接近阈值时开始高亮
                  ),
@@ -914,7 +922,11 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                    data?.humidity.toStringAsFixed(1) ?? '--',
                    // 使用 settings 中的阈值
                    valueColor: data != null && (data.humidity > settings.humidityThresholdHigh || data.humidity < settings.humidityThresholdLow)
-                                 ? (data.humidity > settings.humidityThresholdHigh ? colorScheme.error : Colors.blue.shade300) // 可以为过高和过低设置不同颜色
+                                 ? (data.humidity > settings.humidityThresholdHigh 
+                                     ? colorScheme.error 
+                                     // 建议: 使用颜色对比度工具检查 colorScheme.tertiary (或选定的颜色)
+                                     // 与 ListTile 背景色的对比度。
+                                     : colorScheme.tertiary) // 低湿度也用 tertiary (示例)
                                  : null,
                    highlight: data != null && (data.humidity > (settings.humidityThresholdHigh - 10) || data.humidity < (settings.humidityThresholdLow + 10)), // 例如，接近阈值时高亮
                  ),

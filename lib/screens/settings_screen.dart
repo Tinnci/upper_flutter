@@ -203,10 +203,10 @@ class SettingsScreen extends StatelessWidget {
       barrierDismissible: false, 
       builder: (dialogContext) => AlertDialog(
         title: const Text('⚠️ 危险操作：删除数据库'),
-        content: const Text(
+        content: Text(
           '确定要彻底删除本地存储的所有传感器数据吗？\n'
           '此操作不可恢复，并且可能需要重启应用才能完全生效。',
-          style: TextStyle(color: Colors.red),
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
         ),
         actions: [
           TextButton(
@@ -214,8 +214,11 @@ class SettingsScreen extends StatelessWidget {
             child: const Text('取消'),
           ),
           // 使用醒目的颜色强调删除按钮
-          TextButton(
-            style: TextButton.styleFrom(foregroundColor: Colors.red),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.errorContainer,
+              foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
+            ),
             onPressed: () async {
               // 关闭确认对话框
               Navigator.pop(dialogContext); 
@@ -472,8 +475,8 @@ class SettingsScreen extends StatelessWidget {
                   // --- 新增：危险区域 ---
                   _buildSectionTitle(context, '危险区域'),
                   ListTile(
-                    leading: const Icon(Icons.delete_forever, color: Colors.red),
-                    title: const Text('删除数据库文件', style: TextStyle(color: Colors.red)),
+                    leading: Icon(Icons.delete_forever, color: Theme.of(context).colorScheme.error),
+                    title: Text('删除数据库文件', style: TextStyle(color: Theme.of(context).colorScheme.error)),
                     subtitle: const Text('彻底清除本地所有历史数据。此操作不可逆！'),
                     onTap: () {
                       _showDeleteDatabaseDialog(context, appState);

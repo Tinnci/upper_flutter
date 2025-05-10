@@ -173,10 +173,10 @@ class SingleChartCard extends StatelessWidget {
                     // 使用动态计算的垂直网格间隔
                     verticalInterval: dynamicVerticalGridInterval, 
                     getDrawingHorizontalLine: (value) {
-                      return const FlLine(color: Colors.grey, strokeWidth: 0.5);
+                      return FlLine(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.3), strokeWidth: 0.5);
                     },
                     getDrawingVerticalLine: (value) {
-                      return const FlLine(color: Colors.grey, strokeWidth: 0.5);
+                      return FlLine(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.3), strokeWidth: 0.5);
                     },
                   ),
                   titlesData: FlTitlesData(
@@ -231,7 +231,7 @@ class SingleChartCard extends StatelessWidget {
                       ),
                     ),
                   ),
-                  borderData: FlBorderData(show: true, border: Border.all(color: Colors.grey)),
+                  borderData: FlBorderData(show: true, border: Border.all(color: Theme.of(context).colorScheme.outline)),
                   lineBarsData: allSegments.where((segment) => segment.isNotEmpty).map((segment) {
                     final spotsForThisSegment = segment.where((spot) => spot.x >= minXValue -1 && spot.x <= maxXValue +1).toList();
 
@@ -298,7 +298,7 @@ class SingleChartCard extends StatelessWidget {
                        // 可以根据需要处理其他触摸事件，例如 FlLongPressStart, FlPanUpdateEnd 等
                      },
                      touchTooltipData: LineTouchTooltipData(
-                       getTooltipColor: (touchedSpot) => Colors.blueGrey.withAlpha(204), // Use integer alpha
+                       getTooltipColor: (touchedSpot) => Theme.of(context).colorScheme.inverseSurface, // Use integer alpha
                        getTooltipItems: (List<LineBarSpot> touchedBarSpots) {
                          return touchedBarSpots.map((barSpot) {
                            final flSpot = barSpot;
@@ -308,7 +308,7 @@ class SingleChartCard extends StatelessWidget {
                                 final timestamp = DateTime.fromMillisecondsSinceEpoch(flSpot.x.toInt());
                                 return LineTooltipItem(
                                   '${DateFormat('HH:mm:ss').format(timestamp)}\n',
-                                  const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                  TextStyle(color: Theme.of(context).colorScheme.onInverseSurface, fontWeight: FontWeight.bold),
                                   children: <TextSpan>[
                                     TextSpan(
                                       text: flSpot.y.toStringAsFixed(1),

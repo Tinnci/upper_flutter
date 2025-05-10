@@ -8,6 +8,7 @@ import 'dart:io' show Platform;
 import 'providers/app_state.dart'; // 导入 AppState
 import 'screens/home_screen.dart'; // 导入 HomeScreen
 import 'utils/keyboard_intents.dart'; // 导入键盘意图
+import 'themes/custom_colors.dart'; // <--- 导入你的自定义颜色扩展
 
 void main() {
   // 确保 Flutter 绑定已初始化
@@ -40,6 +41,21 @@ class MyApp extends StatelessWidget {
   static final _defaultDarkColorScheme = ColorScheme.fromSeed(
     seedColor: Colors.blueAccent,
     brightness: Brightness.dark,
+  );
+
+  // 定义你的语义化成功颜色
+  static const _lightSuccessColors = CustomSuccessColors(
+    success: Color(0xFF12B76A), // 例如，一个清晰的绿色
+    onSuccess: Colors.white,
+    successContainer: Color(0xFFD1FADF), // 一个非常浅的绿色背景
+    onSuccessContainer: Color(0xFF0A653A), // 在浅绿色背景上的深绿色文本/图标
+  );
+
+  static const _darkSuccessColors = CustomSuccessColors(
+    success: Color(0xFF32D583), // 适用于深色主题的更亮的绿色
+    onSuccess: Colors.black, // 或者非常深的绿色，以确保对比度
+    successContainer: Color(0xFF073A27), // 深色主题下的深绿色背景
+    onSuccessContainer: Color(0xFFA4F7C8), // 在深绿色背景上的浅绿色文本/图标
   );
 
   @override
@@ -180,6 +196,13 @@ class MyApp extends StatelessWidget {
                             bodyMedium: TextStyle(fontSize: 14.0),
                           );
 
+                  // Determine which CustomSuccessColors to use based on effective theme mode
+                  final Brightness platformBrightness = MediaQuery.platformBrightnessOf(context);
+                  final bool useDarkTheme = appState.themeMode == ThemeMode.dark ||
+                                           (appState.themeMode == ThemeMode.system && platformBrightness == Brightness.dark);
+                  
+                  final currentCustomSuccessColors = useDarkTheme ? _darkSuccessColors : _lightSuccessColors;
+
                   return MaterialApp(
                     title: '环境监测上位机',
                     theme: ThemeData(
@@ -187,6 +210,10 @@ class MyApp extends StatelessWidget {
                       useMaterial3: true,
                       // 使用平台特定文本主题
                       textTheme: cupertinoTextTheme,
+                      // 添加自定义颜色扩展
+                      extensions: <ThemeExtension<dynamic>>[
+                        currentCustomSuccessColors,
+                      ],
                       // AppBar主题 - Material 3风格
                       appBarTheme: AppBarTheme(
                         scrolledUnderElevation: 3.0,
@@ -231,6 +258,13 @@ class MyApp extends StatelessWidget {
                       colorScheme: darkColorScheme,
                       useMaterial3: true,
                       textTheme: cupertinoTextTheme,
+                      // 添加自定义颜色扩展
+                      extensions: <ThemeExtension<dynamic>>[
+                        currentCustomSuccessColors, // Ensure dark theme also gets the correct one (usually _darkSuccessColors)
+                                                // Though, if dynamic colors affect extensions, this might need adjustment.
+                                                // For now, it seems DynamicColorBuilder primarily impacts ColorScheme.
+                                                // We determined currentCustomSuccessColors above.
+                      ],
                       // AppBar主题 - Material 3风格
                       appBarTheme: AppBarTheme(
                         scrolledUnderElevation: 3.0,
