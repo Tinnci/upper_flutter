@@ -158,104 +158,133 @@ class _HistoryVisualizationScreenState
     super.dispose();
   }
 
-  Future<void> _selectDateTime(
-      BuildContext dialogContext, TextEditingController controller) async {
-    if (!mounted) return;
+  Future<void> _handleSelectDate(TextEditingController controller, {required bool isStartDate}) async {
+    DateTime initialDate = DateTime.now();
+    TimeOfDay? existingTimeOfDay;
 
-    DateTime initialDateToShow = DateTime.now();
-    DateTime firstSelectableDate = DateTime(2000);
-    DateTime lastSelectableDate = DateTime(2101);
-
-    if (controller == _endDateController && _startDateController.text.isNotEmpty) {
-      final parsedStartDate = _dateFormat.tryParse(_startDateController.text);
-      if (parsedStartDate != null) {
-        firstSelectableDate = parsedStartDate;
-        if (initialDateToShow.isBefore(parsedStartDate)) initialDateToShow = parsedStartDate;
-      }
-    } else if (controller == _startDateController && _endDateController.text.isNotEmpty) {
-      final parsedEndDate = _dateFormat.tryParse(_endDateController.text);
-      if (parsedEndDate != null) {
-        lastSelectableDate = parsedEndDate;
-        if (initialDateToShow.isAfter(parsedEndDate)) initialDateToShow = parsedEndDate;
-      }
-    }
-    
     if (controller.text.isNotEmpty) {
-      final parsedControllerDate = _dateFormat.tryParse(controller.text);
-      if (parsedControllerDate != null) {
-        initialDateToShow = parsedControllerDate;
-        if (initialDateToShow.isBefore(firstSelectableDate)) initialDateToShow = firstSelectableDate;
-        if (initialDateToShow.isAfter(lastSelectableDate)) initialDateToShow = lastSelectableDate;
+      final DateTime? currentFullDateTime = _dateFormat.tryParse(controller.text);
+      if (currentFullDateTime != null) {
+        initialDate = currentFullDateTime;
+        existingTimeOfDay = TimeOfDay.fromDateTime(currentFullDateTime);
       }
     }
 
+    if (!mounted) return;
     final DateTime? pickedDate = await showDatePicker(
-      context: dialogContext,
-      initialDate: initialDateToShow,
-      firstDate: firstSelectableDate,
-      lastDate: lastSelectableDate,
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2101),
+      builder: (context, child) { // Reusing the theme builder
+        return Theme(
+          data: Theme.of(context).copyWith(
+            dialogBackgroundColor: Theme.of(context).dialogBackgroundColor,
+            // Add other theme properties for DatePicker if needed
+          ),
+          child: child!,
+        );
+      },
     );
 
     if (!mounted || pickedDate == null) return;
 
-    TimeOfDay initialTimeToShow = TimeOfDay.fromDateTime(initialDateToShow);
-     if (controller.text.isNotEmpty) {
-        final parsedDateTime = _dateFormat.tryParse(controller.text);
-        if (parsedDateTime != null) {
-            if (controller == _endDateController && 
-                _startDateController.text.isNotEmpty &&
-                pickedDate.year == firstSelectableDate.year &&
-                pickedDate.month == firstSelectableDate.month &&
-                pickedDate.day == firstSelectableDate.day) {
-                initialTimeToShow = TimeOfDay.fromDateTime(firstSelectableDate);
-            } else if (controller == _startDateController &&
-                       _endDateController.text.isNotEmpty &&
-                       pickedDate.year == lastSelectableDate.year &&
-                       pickedDate.month == lastSelectableDate.month &&
-                       pickedDate.day == lastSelectableDate.day){
-                 initialTimeToShow = TimeOfDay.fromDateTime(lastSelectableDate);
-            } else {
-                 initialTimeToShow = TimeOfDay.fromDateTime(parsedDateTime);
-            }
+    final timeToUse = existingTimeOfDay ?? const TimeOfDay(hour: 0, minute: 0); // Default to midnight if no time was set
+
+    DateTime newDateTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      timeToUse.hour,
+      timeToUse.minute,
+      0, // seconds
+    );
+
+    // Basic validation against the other date
+    TextEditingController otherController = (controller == _startDateController) ? _endDateController : _startDateController;
+    if (otherController.text.isNotEmpty) {
+      final DateTime? otherFullDateTime = _dateFormat.tryParse(otherController.text);
+      if (otherFullDateTime != null) {
+        if (isStartDate && newDateTime.isAfter(otherFullDateTime)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('提醒：起始日期/时间已晚于结束日期/时间。'), backgroundColor: Colors.orangeAccent),
+          );
+        } else if (!isStartDate && newDateTime.isBefore(otherFullDateTime)) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('提醒：结束日期/时间已早于起始日期/时间。'), backgroundColor: Colors.orangeAccent),
+          );
         }
-    } else if (controller == _endDateController && 
-               _startDateController.text.isNotEmpty &&
-               pickedDate.year == firstSelectableDate.year &&
-               pickedDate.month == firstSelectableDate.month &&
-               pickedDate.day == firstSelectableDate.day) {
-        initialTimeToShow = TimeOfDay.fromDateTime(firstSelectableDate);
+      }
     }
 
+    controller.text = _dateFormat.format(newDateTime);
+    setState(() {
+      _activeQuickRangeDuration = null; // Clear quick range selection
+    });
+    if (mounted) _loadHistoricalData();
+  }
+
+  Future<void> _pickTimeForController(TextEditingController controller) async {
+    if (!mounted || controller.text.isEmpty) {
+       ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('请先选择日期，才能编辑时间。'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    final DateTime? currentFullDateTime = _dateFormat.tryParse(controller.text);
+    if (currentFullDateTime == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('日期格式无效，无法选择时间。'), backgroundColor: Colors.orange),
+      );
+      return;
+    }
+
+    final TimeOfDay initialTime = TimeOfDay.fromDateTime(currentFullDateTime);
+    
     if (!mounted) return;
     final TimeOfDay? pickedTime = await showTimePicker(
       context: context,
-      initialTime: initialTimeToShow,
+      initialTime: initialTime,
+      builder: (context, child) { // Optional: Apply theme to time picker
+        return Theme(
+           data: Theme.of(context).copyWith(
+            // Customize time picker theme if needed
+          ),
+          child: child!,
+        );
+      }
     );
 
     if (!mounted || pickedTime == null) return;
 
-    DateTime combined = DateTime(
-      pickedDate.year,
-      pickedDate.month,
-      pickedDate.day,
+    DateTime newDateTime = DateTime(
+      currentFullDateTime.year,
+      currentFullDateTime.month,
+      currentFullDateTime.day,
       pickedTime.hour,
       pickedTime.minute,
-      0,
+      0, // Seconds
     );
-    
-    if (controller == _endDateController && _startDateController.text.isNotEmpty) {
-        final parsedStartDate = _dateFormat.tryParse(_startDateController.text);
-        if(parsedStartDate != null && combined.isBefore(parsedStartDate)) {
-            combined = parsedStartDate;
+
+    // Validate against the other controller if it's set
+    TextEditingController otherController = (controller == _startDateController) ? _endDateController : _startDateController;
+    if (otherController.text.isNotEmpty) {
+      final DateTime? otherFullDateTime = _dateFormat.tryParse(otherController.text);
+      if (otherFullDateTime != null) {
+        if (controller == _startDateController && newDateTime.isAfter(otherFullDateTime)) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('提醒：起始时间已晚于结束时间，请检查。'), backgroundColor: Colors.orangeAccent),
+          );
+        } else if (controller == _endDateController && newDateTime.isBefore(otherFullDateTime)) {
+           ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('提醒：结束时间已早于起始时间，请检查。'), backgroundColor: Colors.orangeAccent),
+          );
         }
-    } else if (controller == _startDateController && _endDateController.text.isNotEmpty) {
-        final parsedEndDate = _dateFormat.tryParse(_endDateController.text);
-        if(parsedEndDate != null && combined.isAfter(parsedEndDate)) {
-            combined = parsedEndDate;
-        }
+      }
     }
 
-    controller.text = _dateFormat.format(combined);
+    controller.text = _dateFormat.format(newDateTime);
     setState(() {
       _activeQuickRangeDuration = null;
     });
@@ -1583,15 +1612,14 @@ class _HistoryVisualizationScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // _buildFilterSection(context), // 旧的调用方式
-            FilterSectionWidget( // 新的调用方式
+            FilterSectionWidget( 
               startDateController: _startDateController,
               endDateController: _endDateController,
               selectedSensorIdentifier: _selectedSensorIdentifier,
               availableSensors: _availableSensors,
               isLoading: _isLoading,
               activeQuickRangeDuration: _activeQuickRangeDuration,
-              dateFormat: _dateFormat,
+              dateFormat: _dateFormat, // Pass the main dateFormat
               onSensorSelected: (String newSensor) {
                 if (_selectedSensorIdentifier != newSensor) {
                   setState(() {
@@ -1600,18 +1628,25 @@ class _HistoryVisualizationScreenState
                   _loadHistoricalData();
                 }
               },
-              onSelectDateTimeRequested: _selectDateTime, // 直接传递方法
+              // New callbacks for individual date/time picking
+              onSelectStartDate: () => _handleSelectDate(_startDateController, isStartDate: true),
+              onSelectStartTime: () => _pickTimeForController(_startDateController),
+              onSelectEndDate: () => _handleSelectDate(_endDateController, isStartDate: false),
+              onSelectEndTime: () => _pickTimeForController(_endDateController),
+              
               onClearStartDate: () {
                 _startDateController.clear();
                 setState(() { _activeQuickRangeDuration = null; });
+                _loadHistoricalData();
               },
               onClearEndDate: () {
                 _endDateController.clear();
                 setState(() { _activeQuickRangeDuration = null; });
+                _loadHistoricalData();
               },
               onLoadData: _loadHistoricalData,
               onResetDateRange: () {
-                 _setDefaultDateRange(); // 保持 sevenDays: true 逻辑
+                 _setDefaultDateRange(); 
                   setState(() {
                     _activeQuickRangeDuration = null;
                     _userSelectedAggregationInterval = null;
@@ -1622,8 +1657,7 @@ class _HistoryVisualizationScreenState
               },
             ),
             const SizedBox(height: 16),
-            // 图表切换按钮
-            cmd_selector.ChartDisplayModeSelector( // 新的调用方式
+            cmd_selector.ChartDisplayModeSelector( 
               currentMode: _currentChartDisplayMode,
               onModeChanged: (cmd_selector.ChartDisplayMode newMode) {
                 setState(() {
@@ -1631,9 +1665,8 @@ class _HistoryVisualizationScreenState
                 });
               },
             ),
-            const SizedBox(height: 8), // 按钮和图表之间的间距
+            const SizedBox(height: 8),
 
-            // 使用AnimatedSwitcher来切换图表
             AnimatedSwitcher(
               duration: const Duration(milliseconds: 300),
               transitionBuilder: (Widget child, Animation<double> animation) {
@@ -1643,7 +1676,7 @@ class _HistoryVisualizationScreenState
                 );
               },
               child: _currentChartDisplayMode == cmd_selector.ChartDisplayMode.line
-                  ? SizedBox( // 包裹在SizedBox中以提供Key和固定高度
+                  ? SizedBox(
                       key: const ValueKey('line_chart_container'),
                       height: chartContainerHeight, 
                       child: Card(
@@ -1651,15 +1684,14 @@ class _HistoryVisualizationScreenState
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
                         child: Padding(
                           padding: const EdgeInsets.all(16.0),
-                          // _buildAnimatedChartContent 内部已经有 AnimatedSwitcher，这里不再嵌套
                           child: _buildAnimatedChartContent(context, segmentedSpots, sensorColor, lineChartDisplayTitle),
                         ),
                       ),
                     )
-                  : SizedBox( // 包裹在SizedBox中以提供Key和固定高度
+                  : SizedBox(
                       key: const ValueKey('candlestick_chart_container'),
-                      height: chartContainerHeight, // 确保K线图也有同样的高度
-                      child: _buildCandlestickChartSectionContent(), // 这个函数返回一个 Card
+                      height: chartContainerHeight,
+                      child: _buildCandlestickChartSectionContent(),
                     ),
             ),
             const SizedBox(height: 16),
