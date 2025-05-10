@@ -123,6 +123,29 @@ class AppState extends ChangeNotifier {
   Timer? _blePollingTimer;
   // --------------------------
 
+  // --- NEW: LED Control State ---
+  bool _isLedOn = true; // Default to On, as per MicroPython code
+  bool _isLedToggleLoading = false;
+  bool get isLedOn => _isLedOn;
+  bool get isLedToggleLoading => _isLedToggleLoading;
+
+  // --- 新增：蜂鸣器、屏幕开关、亮度 ---
+  bool _isBuzzerOn = true;
+  bool _isBuzzerToggleLoading = false;
+  bool get isBuzzerOn => _isBuzzerOn;
+  bool get isBuzzerToggleLoading => _isBuzzerToggleLoading;
+
+  bool _isScreenOn = true;
+  bool _isScreenToggleLoading = false;
+  bool get isScreenOn => _isScreenOn;
+  bool get isScreenToggleLoading => _isScreenToggleLoading;
+
+  int _screenBrightness = 255;
+  bool _isScreenBrightnessLoading = false;
+  int get screenBrightness => _screenBrightness;
+  bool get isScreenBrightnessLoading => _isScreenBrightnessLoading;
+  // --- END ---
+
   // --- 初始化状态标志 ---
   bool _initialized = false;
   bool get isInitialized => _initialized;
@@ -572,6 +595,15 @@ class AppState extends ChangeNotifier {
                _consecutiveReadFailures = 0; 
                _stopTcpDataFetching(); 
                loadLatestReadingsForChart(limit: chartDataPoints); 
+               _isLedOn = true; // Reset LED state to default on new connection (assuming default is ON)
+               _isLedToggleLoading = false; // Ensure loading flag is also reset
+               // --- 新增：重置其他控制状态 ---
+               _isBuzzerOn = true;
+               _isBuzzerToggleLoading = false;
+               _isScreenOn = true;
+               _isScreenToggleLoading = false;
+               _screenBrightness = 255;
+               _isScreenBrightnessLoading = false;
 
                // --- Logic to choose between Notifications/Polling ---
                if (useBlePolling) {
@@ -599,6 +631,15 @@ class AppState extends ChangeNotifier {
                   _chartDataBuffer = [];
                }
                _updateStatus("BLE 已断开连接");
+               _isLedOn = true; // Reset LED to default when disconnected
+               _isLedToggleLoading = false;
+               // --- 新增：重置其他控制状态 ---
+               _isBuzzerOn = true;
+               _isBuzzerToggleLoading = false;
+               _isScreenOn = true;
+               _isScreenToggleLoading = false;
+               _screenBrightness = 255;
+               _isScreenBrightnessLoading = false;
             }
             notifyListeners();
          },
@@ -612,6 +653,15 @@ class AppState extends ChangeNotifier {
                 _activeConnectionType = ActiveConnectionType.none;
              }
              _updateStatus("BLE 连接错误");
+             _isLedOn = true; // Reset LED to default on error
+             _isLedToggleLoading = false;
+             // --- 新增：重置其他控制状态 ---
+             _isBuzzerOn = true;
+             _isBuzzerToggleLoading = false;
+             _isScreenOn = true;
+             _isScreenToggleLoading = false;
+             _screenBrightness = 255;
+             _isScreenBrightnessLoading = false;
              notifyListeners();
          }
       );
@@ -827,7 +877,7 @@ class AppState extends ChangeNotifier {
        _chartDataBuffer = [];
        await loadLatestReadingsForChart(limit: chartDataPoints); // Notifies internally
       _updateStatus("$days 天前的数据已删除");
-      notifyListeners(); // Explicit notify for status update
+      notifyListeners();
   }
   Future<bool> deleteDatabase() async {
     // Disconnect BOTH connections before deleting DB
@@ -838,6 +888,14 @@ class AppState extends ChangeNotifier {
     }
     if (_isBleConnected) {
         await _disconnectBle(); // Triggers notification via stream
+        _isLedOn = true; // Reset on disconnect
+        _isLedToggleLoading = false;
+        _isBuzzerOn = true;
+        _isBuzzerToggleLoading = false;
+        _isScreenOn = true;
+        _isScreenToggleLoading = false;
+        _screenBrightness = 255;
+        _isScreenBrightnessLoading = false;
         wasDisconnected = true;
     }
     if (wasDisconnected) {
@@ -863,4 +921,85 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     return success;
   }
+
+  // --- NEW: LED Control Method directly in AppState ---
+  Future<void> toggleLedState(bool newState) async {
+    if (!_isBleConnected || _isLedToggleLoading) {
+      debugPrint("[AppState LED Toggle] Skipped: Not connected via BLE or already loading. IsBLEConnected: $_isBleConnected, IsLEDToggleLoading: $_isLedToggleLoading");
+      return;
+    }
+
+    _isLedToggleLoading = true;
+    notifyListeners();
+
+    try {
+      await _bleCommService.setLedState(newState);
+      _isLedOn = newState; // Update state only on success
+      _updateStatus("设备指示灯已 ${newState ? '开启' : '关闭'}");
+    } catch (e) {
+      debugPrint("[AppState LED Toggle] Error setting LED state: $e");
+      String errorMessage = e.toString();
+      if (e is Exception) {
+          final message = e.toString();
+          errorMessage = message.startsWith("Exception: ") ? message.substring(11) : message;
+      }
+      _updateStatus("灯光控制失败: ${errorMessage.substring(0, min(errorMessage.length, 40))}");
+    } finally {
+      _isLedToggleLoading = false;
+      notifyListeners();
+    }
+  }
+
+  // --- 新增：蜂鸣器、屏幕、亮度控制方法 ---
+  Future<void> toggleBuzzerState(bool newState) async {
+    if (!_isBleConnected || _isBuzzerToggleLoading) return;
+    _isBuzzerToggleLoading = true;
+    notifyListeners();
+    try {
+      await _bleCommService.setBuzzerAlertLogic(newState);
+      _isBuzzerOn = newState;
+      _updateStatus("蜂鸣器已${newState ? '开启' : '关闭'}");
+    } catch (e) {
+      debugPrint("[AppState Buzzer Toggle] Error: $e");
+      _updateStatus("蜂鸣器控制失败: ${e.toString().substring(0, min(e.toString().length, 40))}");
+    } finally {
+      _isBuzzerToggleLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleScreenState(bool newState) async {
+    if (!_isBleConnected || _isScreenToggleLoading) return;
+    _isScreenToggleLoading = true;
+    notifyListeners();
+    try {
+      await _bleCommService.setScreenState(newState);
+      _isScreenOn = newState;
+      _updateStatus("屏幕已${newState ? '开启' : '关闭'}");
+    } catch (e) {
+      debugPrint("[AppState Screen Toggle] Error: $e");
+      _updateStatus("屏幕控制失败: ${e.toString().substring(0, min(e.toString().length, 40))}");
+    } finally {
+      _isScreenToggleLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> setScreenBrightness(int brightness) async {
+    if (!_isBleConnected || _isScreenBrightnessLoading) return;
+    _isScreenBrightnessLoading = true;
+    notifyListeners();
+    try {
+      await _bleCommService.setScreenBrightness(brightness);
+      _screenBrightness = brightness;
+      _updateStatus("屏幕亮度已设置为$brightness");
+    } catch (e) {
+      debugPrint("[AppState Screen Brightness] Error: $e");
+      _updateStatus("亮度设置失败: ${e.toString().substring(0, min(e.toString().length, 40))}");
+    } finally {
+      _isScreenBrightnessLoading = false;
+      notifyListeners();
+    }
+  }
+  // --- END ---
 }

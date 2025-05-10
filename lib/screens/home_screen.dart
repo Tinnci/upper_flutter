@@ -647,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               children: [
                  Padding( // Add some padding to the title
                    padding: const EdgeInsets.only(bottom: 4.0),
-                   child: Text("蓝牙 (BLE) 连接", style: Theme.of(context).textTheme.titleSmall),
+                   child: Text("蓝牙 (BLE) 连接与控制", style: Theme.of(context).textTheme.titleSmall), // Modified Title
                  ),
                  Divider(
                    height: 16, // Adjusted height
@@ -664,6 +664,128 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                      children: bleControlItems,
                    ),
                  ),
+                 // --- NEW: LED Control Switch ---
+                 if (appState.isBleConnected) ...[
+                    const Divider(height: 20, indent: 8, endIndent: 8), // Optional Separator
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0), // Padding for the row
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row( // Group Icon and Text
+                            children: [
+                              Icon(Icons.lightbulb_outline, color: Theme.of(context).colorScheme.primary, size: 20),
+                              const SizedBox(width: 8),
+                              Text("设备指示灯", style: Theme.of(context).textTheme.labelLarge),
+                            ],
+                          ),
+                          appState.isLedToggleLoading
+                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+                              : Platform.isIOS
+                                  ? CupertinoSwitch(
+                                      value: appState.isLedOn,
+                                      onChanged: (value) => appState.toggleLedState(value),
+                                      activeTrackColor: Theme.of(context).colorScheme.primary,
+                                    )
+                                  : Switch(
+                                      value: appState.isLedOn,
+                                      onChanged: (value) => appState.toggleLedState(value),
+                                      activeTrackColor: Theme.of(context).colorScheme.primary,
+                                    ),
+                        ],
+                      ),
+                    ),
+                    // --- 新增：蜂鸣器控制 ---
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.notifications_active_outlined, color: Theme.of(context).colorScheme.tertiary, size: 20),
+                              const SizedBox(width: 8),
+                              Text("蜂鸣器报警", style: Theme.of(context).textTheme.labelLarge),
+                            ],
+                          ),
+                          appState.isBuzzerToggleLoading
+                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+                              : Platform.isIOS
+                                  ? CupertinoSwitch(
+                                      value: appState.isBuzzerOn,
+                                      onChanged: (value) => appState.toggleBuzzerState(value),
+                                      activeTrackColor: Theme.of(context).colorScheme.tertiary,
+                                    )
+                                  : Switch(
+                                      value: appState.isBuzzerOn,
+                                      onChanged: (value) => appState.toggleBuzzerState(value),
+                                      activeTrackColor: Theme.of(context).colorScheme.tertiary,
+                                    ),
+                        ],
+                      ),
+                    ),
+                    // --- 新增：屏幕开关 ---
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.smart_display_outlined, color: Theme.of(context).colorScheme.secondary, size: 20),
+                              const SizedBox(width: 8),
+                              Text("屏幕开关", style: Theme.of(context).textTheme.labelLarge),
+                            ],
+                          ),
+                          appState.isScreenToggleLoading
+                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+                              : Platform.isIOS
+                                  ? CupertinoSwitch(
+                                      value: appState.isScreenOn,
+                                      onChanged: (value) => appState.toggleScreenState(value),
+                                      activeTrackColor: Theme.of(context).colorScheme.secondary,
+                                    )
+                                  : Switch(
+                                      value: appState.isScreenOn,
+                                      onChanged: (value) => appState.toggleScreenState(value),
+                                      activeTrackColor: Theme.of(context).colorScheme.secondary,
+                                    ),
+                        ],
+                      ),
+                    ),
+                    // --- 新增：屏幕亮度 ---
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4.0, vertical: 4.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Row(
+                            children: [
+                              Icon(Icons.brightness_6_outlined, color: Theme.of(context).colorScheme.primary, size: 20),
+                              const SizedBox(width: 8),
+                              Text("屏幕亮度", style: Theme.of(context).textTheme.labelLarge),
+                            ],
+                          ),
+                          appState.isScreenBrightnessLoading
+                              ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2.5))
+                              : SizedBox(
+                                  width: 120,
+                                  child: Slider(
+                                    value: appState.screenBrightness.toDouble(),
+                                    min: 0,
+                                    max: 255,
+                                    divisions: 51,
+                                    label: appState.screenBrightness.toString(),
+                                    onChanged: appState.isScreenBrightnessLoading ? null : (value) {
+                                      appState.setScreenBrightness(value.round());
+                                    },
+                                  ),
+                                ),
+                        ],
+                      ),
+                    ),
+                 ],
+                 // --- END NEW ---
               ],
             ),
           ),

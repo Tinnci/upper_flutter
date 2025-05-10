@@ -10,6 +10,18 @@ const String HUMID_CHAR_UUID        = "00002a6f-0000-1000-8000-00805f9b34fb";
 const String LUX_CHAR_UUID          = "00002afb-0000-1000-8000-00805f9b34fb";
 const String NOISE_CHAR_UUID        = "8eb6184d-bec0-41b0-8eba-e350662524ff"; // Custom UUID
 
+// --- NEW: Device Control Service and Characteristics UUIDs ---
+// From the provided MicroPython code:
+// _DEVICE_CONTROL_SERVICE_UUID = bluetooth.UUID("a1b2c3d4-e5f6-7890-1234-567890abcdef")
+// _LED_STATE_CHAR_UUID = bluetooth.UUID("a1b2c3d4-0001-0000-0000-567890abcdef")
+const String DEVICE_CONTROL_SERVICE_UUID = "a1b2c3d4-e5f6-7890-1234-567890abcdef";
+const String LED_STATE_CHAR_UUID         = "a1b2c3d4-0001-0000-0000-567890abcdef";
+// --- 新增：补充其他控制特征UUID ---
+const String BUZZER_ALERT_LOGIC_CHAR_UUID = "a1b2c3d4-0002-0000-0000-567890abcdef";
+const String SCREEN_STATE_CHAR_UUID       = "a1b2c3d4-0003-0000-0000-567890abcdef";
+const String SCREEN_BRIGHTNESS_CHAR_UUID  = "a1b2c3d4-0004-0000-0000-567890abcdef";
+// --- END NEW ---
+
 class BleCommunicationService {
   String? _connectedDeviceId;
   bool _isConnecting = false;
@@ -261,12 +273,18 @@ class BleCommunicationService {
     if (_connectedDeviceId == null) return;
     final lcCharUuid = characteristicUuid.toLowerCase(); 
 
+    // Determine which service UUID to use based on the characteristic
+    String serviceUuidToUse = ENV_SENSE_SERVICE_UUID; // Default to environment sensing
+    if (lcCharUuid == LED_STATE_CHAR_UUID.toLowerCase()) { // Add other control chars here if needed
+      serviceUuidToUse = DEVICE_CONTROL_SERVICE_UUID;
+    }
+
     try {
-      debugPrint("[BLE Manual Read] Attempting manual read for $lcCharUuid on $_connectedDeviceId");
+      debugPrint("[BLE Manual Read] Attempting manual read for $lcCharUuid on $_connectedDeviceId using service $serviceUuidToUse");
       
       final Uint8List readData = await UniversalBle.readValue(
           _connectedDeviceId!,
-          ENV_SENSE_SERVICE_UUID, 
+          serviceUuidToUse, 
           lcCharUuid, 
       );
 
@@ -296,6 +314,9 @@ class BleCommunicationService {
      final humidUuidLower = HUMID_CHAR_UUID.toLowerCase();
      final luxUuidLower = LUX_CHAR_UUID.toLowerCase();
      final noiseUuidLower = NOISE_CHAR_UUID.toLowerCase();
+     // --- NEW: Lowercase LED state UUID ---
+     final ledStateUuidLower = LED_STATE_CHAR_UUID.toLowerCase();
+     // --- END NEW ---
 
      try {
          if (characteristicUuid == tempUuidLower && data.length >= 2) {
@@ -316,6 +337,23 @@ class BleCommunicationService {
             debugPrint('[BLE PARSED] Noise RMS: $_lastNoiseRms');
            updated = true;
          } else {
+            // Check if it's an LED state update (if we were to subscribe to it)
+            // For now, this parsing section is primarily for sensor data.
+            // LED state updates from the device would require subscribing to LED_STATE_CHAR_UUID
+            // and then parsing the value here.
+            // Example if LED state was also being notified:
+            /*
+            if (characteristicUuid == ledStateUuidLower && data.length >= 1) {
+              // Assuming LED state is 1 byte (0 or 1)
+              bool isLedOn = data[0] == 1;
+              // Here you would typically update a stream or a variable in AppState via a callback
+              // For example: _ledStateController.add(isLedOn);
+              debugPrint('[BLE PARSED] LED State: ${isLedOn ? "On" : "Off"}');
+              // 'updated' might not be set to true unless it's part of the main sensor data packet.
+            } else {
+              debugPrint('[BLE PARSE UNKNOWN] Unknown Char: $characteristicUuid or data length mismatch. Data: $data');
+            }
+            */
             debugPrint('[BLE PARSE UNKNOWN] Unknown Char: $characteristicUuid or data length mismatch. Data: $data');
          }
      } catch (e) {
@@ -357,3 +395,102 @@ class BleCommunicationService {
      debugPrint("BleCommunicationService (universal_ble) disposed.");
   }
 }
+
+// --- NEW: Method to control LED State ---
+extension BleDeviceControl on BleCommunicationService {
+  Future<void> setLedState(bool isOn) async {
+    if (_connectedDeviceId == null) {
+      debugPrint("[BLE Write LED] Error: Not connected to any device.");
+      throw Exception("Not connected to a BLE device.");
+    }
+    if (_isConnecting) {
+      debugPrint("[BLE Write LED] Error: Connection in progress.");
+      throw Exception("Connection currently in progress.");
+    }
+
+    final valueToWrite = Uint8List.fromList([isOn ? 1 : 0]);
+
+    try {
+      debugPrint(
+          "[BLE Write LED] Attempting to write to LED_STATE_CHAR_UUID ($LED_STATE_CHAR_UUID) on device $_connectedDeviceId. Service: $DEVICE_CONTROL_SERVICE_UUID. Value: ${isOn ? 1 : 0}");
+      await UniversalBle.writeValue(
+        _connectedDeviceId!,
+        DEVICE_CONTROL_SERVICE_UUID, // Use the new service UUID
+        LED_STATE_CHAR_UUID,         // Use the new characteristic UUID
+        valueToWrite,
+        BleOutputProperty.withResponse, // Or .withoutResponse depending on characteristic
+      );
+      debugPrint("[BLE Write LED] Successfully wrote value ${isOn ? 1 : 0} to LED state.");
+      // Optionally, if the characteristic is readable, you could read it back to confirm
+      // Or, if it's notifiable/indicatable, wait for an update via onValueChange.
+      // For a simple toggle, we often assume success if no error is thrown.
+    } catch (e) {
+      debugPrint("[BLE Write LED] Error writing LED state: $e");
+      throw Exception("Failed to set LED state: $e");
+    }
+  }
+
+  // 控制蜂鸣器报警逻辑
+  Future<void> setBuzzerAlertLogic(bool enabled) async {
+    if (_connectedDeviceId == null) {
+      debugPrint("[BLE Write Buzzer] Error: Not connected to any device.");
+      throw Exception("Not connected to a BLE device.");
+    }
+    if (_isConnecting) {
+      debugPrint("[BLE Write Buzzer] Error: Connection in progress.");
+      throw Exception("Connection currently in progress.");
+    }
+
+    final valueToWrite = Uint8List.fromList([enabled ? 1 : 0]);
+    await UniversalBle.writeValue(
+      _connectedDeviceId!,
+      DEVICE_CONTROL_SERVICE_UUID,
+      BUZZER_ALERT_LOGIC_CHAR_UUID,
+      valueToWrite,
+      BleOutputProperty.withResponse,
+    );
+  }
+
+  // 控制屏幕开关
+  Future<void> setScreenState(bool isOn) async {
+    if (_connectedDeviceId == null) {
+      debugPrint("[BLE Write Screen] Error: Not connected to any device.");
+      throw Exception("Not connected to a BLE device.");
+    }
+    if (_isConnecting) {
+      debugPrint("[BLE Write Screen] Error: Connection in progress.");
+      throw Exception("Connection currently in progress.");
+    }
+
+    final valueToWrite = Uint8List.fromList([isOn ? 1 : 0]);
+    await UniversalBle.writeValue(
+      _connectedDeviceId!,
+      DEVICE_CONTROL_SERVICE_UUID,
+      SCREEN_STATE_CHAR_UUID,
+      valueToWrite,
+      BleOutputProperty.withResponse,
+    );
+  }
+
+  // 控制屏幕亮度
+  Future<void> setScreenBrightness(int brightness) async {
+    if (_connectedDeviceId == null) {
+      debugPrint("[BLE Write Brightness] Error: Not connected to any device.");
+      throw Exception("Not connected to a BLE device.");
+    }
+    if (_isConnecting) {
+      debugPrint("[BLE Write Brightness] Error: Connection in progress.");
+      throw Exception("Connection currently in progress.");
+    }
+
+    final valueToWrite = Uint8List.fromList([brightness.clamp(0, 255)]);
+    await UniversalBle.writeValue(
+      _connectedDeviceId!,
+      DEVICE_CONTROL_SERVICE_UUID,
+      SCREEN_BRIGHTNESS_CHAR_UUID,
+      valueToWrite,
+      BleOutputProperty.withResponse,
+    );
+  }
+}
+// --- END NEW ---

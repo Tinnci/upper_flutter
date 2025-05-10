@@ -2004,7 +2004,7 @@ class _HistoryVisualizationScreenState
               child: Container(
                 width: MediaQuery.of(context).size.width * 0.5, // Approx 50% width for title
                 height: 20,
-                color: colorScheme.onSurface.withOpacity(0.1),
+                color: colorScheme.onSurface.withValues(alpha: 0.1),
               ),
             ),
             const Divider(),
