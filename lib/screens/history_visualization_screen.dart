@@ -10,9 +10,9 @@ import 'dart:math' as math;
 
 // 新增导入拆分出来的组件
 import 'history_visualization/components/statistics_panel.dart';
-
-// 新增：将枚举定义移到此处 (文件顶部)
-enum _ChartDisplayMode { line, candlestick }
+import 'history_visualization/components/filter_section_widget.dart'; // 新增
+import 'history_visualization/components/chart_display_mode_selector.dart' as cmd_selector; // 新增，使用别名避免枚举冲突
+import 'history_visualization/components/aggregation_interval_selector.dart'; // 新增
 
 // Helper function for formatting stat values (similar to the one in statistics_panel.dart)
 String _formatStatValueHelper(dynamic value) {
@@ -54,8 +54,8 @@ class _HistoryVisualizationScreenState
   bool _initialLoadDone = false;
   Duration? _activeQuickRangeDuration;
 
-  //  _ChartDisplayMode 枚举已移到文件顶部
-  _ChartDisplayMode _currentChartDisplayMode = _ChartDisplayMode.line; // 默认显示折线图
+  // 使用导入的枚举类型
+  cmd_selector.ChartDisplayMode _currentChartDisplayMode = cmd_selector.ChartDisplayMode.line;
 
   static const Duration MAX_TIME_GAP_FOR_LINE = Duration(minutes: 10);
 
@@ -1021,45 +1021,19 @@ class _HistoryVisualizationScreenState
   }
   
   Widget _buildAggregationIntervalSelector() {
-    final theme = Theme.of(context);
-    final List<ButtonSegment<Duration?>> segments = [
-      ButtonSegment<Duration?>(
-        value: null, // 'null' represents the "Auto" selection
-        label: Text(
-          _userSelectedAggregationInterval == null
-              ? '自动 (${_formatDurationToLabel(_currentAggregationInterval)})' // "自动" 模式激活时
-              : '自动' // "自动" 模式未激活时
-        ),
-        icon: _userSelectedAggregationInterval == null 
-              ? const Icon(Icons.auto_awesome_outlined, size: 18) 
-              : null, // 仅在 "自动" 激活时显示图标
-      ),
-      ..._availableAggregationIntervals.map((interval) {
-        return ButtonSegment<Duration?>(
-          value: interval,
-          label: Text(_formatDurationToLabel(interval)), // 使用新的辅助函数
-          // icon: _userSelectedAggregationInterval == interval ? const Icon(Icons.check_circle_outline, size: 16) : null, // 可选：为选中的手动项添加图标
-        );
-      }),
-    ];
-
-    return SegmentedButton<Duration?>(
-      segments: segments,
-      selected: <Duration?>{_userSelectedAggregationInterval}, // selected is a Set
-      onSelectionChanged: (Set<Duration?> newSelection) {
+    // 此方法的内容已移至 AggregationIntervalSelector 组件
+    // 但父组件仍然需要提供 _formatDurationToLabel
+    return AggregationIntervalSelector(
+      userSelectedAggregationInterval: _userSelectedAggregationInterval,
+      currentAggregationInterval: _currentAggregationInterval,
+      availableAggregationIntervals: _availableAggregationIntervals,
+      formatDurationToLabel: _formatDurationToLabel, // 将方法传递给子组件
+      onSelectionChanged: (Duration? newSelection) {
         setState(() {
-          // SegmentedButton can have multiple selections if 'multiSelectionEnabled' is true,
-          // but for this use case, we only care about a single selection.
-          _userSelectedAggregationInterval = newSelection.first;
+          _userSelectedAggregationInterval = newSelection;
         });
         _prepareAndSetCandlestickData();
       },
-      style: SegmentedButton.styleFrom(
-        // visualDensity: VisualDensity.compact, // Makes buttons smaller
-        padding: const EdgeInsets.symmetric(horizontal: 8.0), // Adjust padding if needed
-        textStyle: theme.textTheme.labelSmall,
-      ),
-      showSelectedIcon: false, // Hides the default checkmark, 依赖背景色区分选中状态
     );
   }
 
@@ -1115,7 +1089,7 @@ class _HistoryVisualizationScreenState
                 ),
               ),
               const SizedBox(width: 8),
-              _buildAggregationIntervalSelector(),
+              _buildAggregationIntervalSelector(), // 调用现在会构建 AggregationIntervalSelector 组件
             ],
           ),
         ),
@@ -1536,6 +1510,7 @@ class _HistoryVisualizationScreenState
       builder: (context, constraints) {
         const double wideScreenBreakpoint = 1050.0;
         bool isWideScreen = constraints.maxWidth > wideScreenBreakpoint;
+        const double interpretationPanelMaxWidth = 600.0; // 为智能解读面板也定义一个最大宽度
 
         Widget animatedStatsContent = AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
@@ -1557,18 +1532,23 @@ class _HistoryVisualizationScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Flexible(
-                flex: 5,
+                flex: 5, // 可以调整 flex 比例
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 600),
+                    constraints: const BoxConstraints(maxWidth: 600), // 数据洞察最大宽度
                     child: animatedStatsContent,
                   ),
                 ),
               ),
               const SizedBox(width: 16),
               Flexible(
-                flex: 4,
-                child: _buildDataInterpretationPanel(context, _statistics!, appState.settings),
+                flex: 4, // 可以调整 flex 比例
+                child: Center( // 新增 Center
+                  child: ConstrainedBox( // 新增 ConstrainedBox
+                    constraints: const BoxConstraints(maxWidth: interpretationPanelMaxWidth), // 智能解读最大宽度
+                    child: _buildDataInterpretationPanel(context, _statistics!, appState.settings),
+                  ),
+                ),
               ),
             ],
           );
@@ -1577,12 +1557,17 @@ class _HistoryVisualizationScreenState
                 children: [
                     Center(
                         child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 700),
+                        constraints: const BoxConstraints(maxWidth: 700), // 窄屏时数据洞察最大宽度
                         child: animatedStatsContent,
                         ),
                     ),
                     const SizedBox(height:16),
-                     _buildDataInterpretationPanel(context, _statistics!, appState.settings),
+                    Center( // 新增 Center
+                      child: ConstrainedBox( // 新增 ConstrainedBox
+                        constraints: const BoxConstraints(maxWidth: interpretationPanelMaxWidth), // 窄屏时智能解读最大宽度
+                        child: _buildDataInterpretationPanel(context, _statistics!, appState.settings),
+                      ),
+                    ),
                 ]
             );
         }
@@ -1598,31 +1583,53 @@ class _HistoryVisualizationScreenState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _buildFilterSection(context),
+            // _buildFilterSection(context), // 旧的调用方式
+            FilterSectionWidget( // 新的调用方式
+              startDateController: _startDateController,
+              endDateController: _endDateController,
+              selectedSensorIdentifier: _selectedSensorIdentifier,
+              availableSensors: _availableSensors,
+              isLoading: _isLoading,
+              activeQuickRangeDuration: _activeQuickRangeDuration,
+              dateFormat: _dateFormat,
+              onSensorSelected: (String newSensor) {
+                if (_selectedSensorIdentifier != newSensor) {
+                  setState(() {
+                    _selectedSensorIdentifier = newSensor;
+                  });
+                  _loadHistoricalData();
+                }
+              },
+              onSelectDateTimeRequested: _selectDateTime, // 直接传递方法
+              onClearStartDate: () {
+                _startDateController.clear();
+                setState(() { _activeQuickRangeDuration = null; });
+              },
+              onClearEndDate: () {
+                _endDateController.clear();
+                setState(() { _activeQuickRangeDuration = null; });
+              },
+              onLoadData: _loadHistoricalData,
+              onResetDateRange: () {
+                 _setDefaultDateRange(); // 保持 sevenDays: true 逻辑
+                  setState(() {
+                    _activeQuickRangeDuration = null;
+                    _userSelectedAggregationInterval = null;
+                  });
+              },
+              onQuickRangeApplied: (Duration duration, {bool startOfDay = false}) {
+                _applyQuickRange(duration, startOfDay: startOfDay);
+              },
+            ),
             const SizedBox(height: 16),
             // 图表切换按钮
-            SegmentedButton<_ChartDisplayMode>(
-              segments: const <ButtonSegment<_ChartDisplayMode>>[
-                ButtonSegment<_ChartDisplayMode>(
-                  value: _ChartDisplayMode.line,
-                  label: Text('详细趋势'),
-                  icon: Icon(Icons.show_chart_rounded),
-                ),
-                ButtonSegment<_ChartDisplayMode>(
-                  value: _ChartDisplayMode.candlestick,
-                  label: Text('K线分析'),
-                  icon: Icon(Icons.candlestick_chart_outlined),
-                ),
-              ],
-              selected: <_ChartDisplayMode>{_currentChartDisplayMode},
-              onSelectionChanged: (Set<_ChartDisplayMode> newSelection) {
+            cmd_selector.ChartDisplayModeSelector( // 新的调用方式
+              currentMode: _currentChartDisplayMode,
+              onModeChanged: (cmd_selector.ChartDisplayMode newMode) {
                 setState(() {
-                  _currentChartDisplayMode = newSelection.first;
+                  _currentChartDisplayMode = newMode;
                 });
               },
-              style: SegmentedButton.styleFrom(
-                // visualDensity: VisualDensity.compact, // 使按钮更紧凑
-              ),
             ),
             const SizedBox(height: 8), // 按钮和图表之间的间距
 
@@ -1635,7 +1642,7 @@ class _HistoryVisualizationScreenState
                   child: SizeTransition(sizeFactor: animation, axisAlignment: -1.0, child: child),
                 );
               },
-              child: _currentChartDisplayMode == _ChartDisplayMode.line
+              child: _currentChartDisplayMode == cmd_selector.ChartDisplayMode.line
                   ? SizedBox( // 包裹在SizedBox中以提供Key和固定高度
                       key: const ValueKey('line_chart_container'),
                       height: chartContainerHeight, 
@@ -1686,233 +1693,6 @@ class _HistoryVisualizationScreenState
       _userSelectedAggregationInterval = null;
     });
     _loadHistoricalData();
-  }
-
-  Widget _buildFilterSection(BuildContext context) {
-    final bool isSmallScreen = MediaQuery.of(context).size.width < 600;
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12.0)),
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column( 
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4.0, bottom: 8.0),
-                    child: Text(
-                      "选择传感器",
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ),
-                  Wrap(
-                    spacing: 8.0,
-                    runSpacing: 8.0,
-                    alignment: WrapAlignment.center, // 修改：居中对齐传感器选择
-                    children: _availableSensors.map((sensor) {
-                      final bool isSelected = _selectedSensorIdentifier == sensor;
-                      return ChoiceChip(
-                        label: Text(sensor),
-                        selected: isSelected,
-                        onSelected: (bool selected) {
-                          if (selected && _selectedSensorIdentifier != sensor) {
-                            setState(() {
-                              _selectedSensorIdentifier = sensor;
-                            });
-                            _loadHistoricalData();
-                          }
-                        },
-                        selectedColor: Theme.of(context).colorScheme.primaryContainer,
-                        labelStyle: isSelected 
-                            ? Theme.of(context).textTheme.labelLarge?.copyWith(color: Theme.of(context).colorScheme.onPrimaryContainer)
-                            : Theme.of(context).textTheme.labelLarge,
-                        side: isSelected 
-                            ? BorderSide.none 
-                            : BorderSide(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.7)),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8.0),
-                        ),
-                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                        showCheckmark: false, 
-                        elevation: isSelected ? 1 : 0,
-                        pressElevation: 2,
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
-            Wrap( 
-              spacing: 12.0,
-              runSpacing: 12.0,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              alignment: isSmallScreen ? WrapAlignment.center : WrapAlignment.start,
-              children: [
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: isSmallScreen ? double.infinity : 230),
-                  child: TextField(
-                    controller: _startDateController,
-                    decoration: InputDecoration(
-                      labelText: '起始时间',
-                      hintText: '选择日期时间',
-                      isDense: true,
-                      border: const OutlineInputBorder(),
-                      suffixIcon: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          if (_startDateController.text.isNotEmpty)
-                            IconButton(
-                              icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () {
-                                _startDateController.clear();
-                                setState(() { _activeQuickRangeDuration = null; });
-                              },
-                              tooltip: '清除起始日期',
-                              padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                            ),
-                          IconButton(
-                            icon: const Icon(Icons.calendar_today, size: 18),
-                            onPressed: () => _selectDateTime(context, _startDateController),
-                            tooltip: '选择起始日期',
-                            padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                          ),
-                        ],
-                      ),
-                    ),
-                    readOnly: true,
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ),
-                ConstrainedBox(
-                  constraints: BoxConstraints(maxWidth: isSmallScreen ? double.infinity : 230),
-                  child: TextField(
-                    controller: _endDateController,
-                    decoration: InputDecoration(
-                      labelText: '结束时间',
-                      hintText: '选择日期时间',
-                      isDense: true,
-                      border: const OutlineInputBorder(),
-                      suffixIcon: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          if (_endDateController.text.isNotEmpty)
-                            IconButton(
-                              icon: const Icon(Icons.clear, size: 18),
-                              onPressed: () {
-                                _endDateController.clear();
-                                setState(() { _activeQuickRangeDuration = null; });
-                              },
-                              tooltip: '清除结束日期',
-                              padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                            ),
-                          IconButton(
-                            icon: const Icon(Icons.calendar_today, size: 18),
-                            onPressed: () => _selectDateTime(context, _endDateController),
-                            tooltip: '选择结束日期',
-                            padding: EdgeInsets.zero, constraints: const BoxConstraints(),
-                          ),
-                        ],
-                      ),
-                    ),
-                    readOnly: true,
-                    style: const TextStyle(fontSize: 14),
-                  ),
-                ),
-                FilledButton.tonalIcon(
-                  onPressed: _isLoading ? null : _loadHistoricalData,
-                  icon: _isLoading ? const SizedBox(width:18, height:18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.search, size: 18),
-                  label: const Text('查询'),
-                  style: FilledButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10)),
-                ),
-                TextButton(
-                  onPressed: _isLoading
-                      ? null
-                      : () {
-                          _setDefaultDateRange();
-                          setState(() {
-                             _activeQuickRangeDuration = null;
-                             _userSelectedAggregationInterval = null;
-                          });
-                        },
-                  child: const Text('重置 (默认7天)'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8.0,
-              runSpacing: 8.0,
-              alignment: WrapAlignment.center, // 修改：居中对齐快捷范围按钮
-              children: [
-                OutlinedButton(
-                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 1)),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: _activeQuickRangeDuration == const Duration(hours: 1)
-                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
-                        : null,
-                  ),
-                  child: const Text('最近1小时')
-                ),
-                OutlinedButton(
-                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(hours: 6)),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: _activeQuickRangeDuration == const Duration(hours: 6)
-                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
-                        : null,
-                  ),
-                  child: const Text('最近6小时')
-                ),
-                OutlinedButton(
-                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 1), startOfDay: true),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 1) && _activeQuickRangeDuration != const Duration(days: 0)
-                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
-                        : null,
-                  ),
-                  child: const Text('今天')
-                ),
-                OutlinedButton(
-                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 0)),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 0)
-                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
-                        : null,
-                  ),
-                  child: const Text('昨天')
-                ), 
-                OutlinedButton(
-                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 7)),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 7)
-                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
-                        : null,
-                  ),
-                  child: const Text('最近7天')
-                ),
-                OutlinedButton(
-                  onPressed: _isLoading ? null : () => _applyQuickRange(const Duration(days: 30)),
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: _activeQuickRangeDuration == const Duration(days: 30)
-                        ? Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.5)
-                        : null,
-                  ),
-                  child: const Text('最近30天')
-                ),
-              ],
-            )
-          ],
-        ),
-      ),
-    );
   }
 
   double? _calculateFeelsLikeTemperature(double tempC, double rhPercent) {
