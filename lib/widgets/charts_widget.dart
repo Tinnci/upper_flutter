@@ -173,10 +173,10 @@ class SingleChartCard extends StatelessWidget {
                     // 使用动态计算的垂直网格间隔
                     verticalInterval: dynamicVerticalGridInterval, 
                     getDrawingHorizontalLine: (value) {
-                      return FlLine(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.3), strokeWidth: 0.5);
+                      return FlLine(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3), strokeWidth: 0.5);
                     },
                     getDrawingVerticalLine: (value) {
-                      return FlLine(color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.3), strokeWidth: 0.5);
+                      return FlLine(color: Theme.of(context).colorScheme.outlineVariant.withValues(alpha: 0.3), strokeWidth: 0.5);
                     },
                   ),
                   titlesData: FlTitlesData(

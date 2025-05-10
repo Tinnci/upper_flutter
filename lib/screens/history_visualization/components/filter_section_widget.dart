@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart'; // 确保导入 DateFormat
 
-class FilterSectionWidget extends StatelessWidget {
+// 将 FilterSectionWidget 转换为 StatefulWidget
+class FilterSectionWidget extends StatefulWidget {
   final TextEditingController startDateController;
   final TextEditingController endDateController;
   final String? selectedSensorIdentifier;
@@ -48,7 +49,12 @@ class FilterSectionWidget extends StatelessWidget {
   static const EdgeInsets _kQuickRangeButtonInternalPadding =
       EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0);
 
+  // 新增：用于"自动范围"的特殊 Duration 标识
+  static const Duration autoRangeDuration = Duration(microseconds: -999);
+
   static const List<Map<String, dynamic>> _quickRanges = [
+    // 新增 "自动范围" 选项
+    {'label': '自动范围', 'duration': autoRangeDuration, 'startOfDay': false}, // startOfDay: false or true, define behavior
     {'label': '最近1小时', 'duration': Duration(hours: 1)},
     {'label': '最近6小时', 'duration': Duration(hours: 6)},
     {'label': '今天', 'duration': Duration(days: 1), 'startOfDay': true},
@@ -71,7 +77,7 @@ class FilterSectionWidget extends StatelessWidget {
   final VoidCallback onClearEndDate;
   final VoidCallback onLoadData;
   final VoidCallback onResetDateRange;
-  final void Function(Duration duration, {bool startOfDay}) onQuickRangeApplied;
+  final void Function(Duration? duration, {bool startOfDay}) onQuickRangeApplied;
 
   const FilterSectionWidget({
     super.key,
@@ -95,15 +101,24 @@ class FilterSectionWidget extends StatelessWidget {
     required this.onQuickRangeApplied,
   });
 
+  @override
+  State<FilterSectionWidget> createState() => _FilterSectionWidgetState();
+}
+
+class _FilterSectionWidgetState extends State<FilterSectionWidget> {
+  // Remove _isCustomRangeExpanded, it's no longer needed.
+  // bool _isCustomRangeExpanded = false; 
+
+  // _buildPickerButton 方法移到 State 类内部，以便访问 context 等
   Widget _buildPickerButton({
-    required BuildContext context,
+    required BuildContext context, // context 现在来自 State
     required TextEditingController controller,
     required String placeholderText,
     required IconData icon,
     required VoidCallback onPressed,
     required String Function(DateTime dt) valueFormatter,
-    required DateFormat fullDateTimeFormat, // For parsing
-    bool isEnabled = true, // General enabled state
+    required DateFormat fullDateTimeFormat,
+    bool isEnabled = true,
   }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
@@ -125,20 +140,19 @@ class FilterSectionWidget extends StatelessWidget {
             hasSuccessfullyParsedValue = true;
           } else {
             buttonText = "(格式错误)";
-            isFormatError = true; 
+            isFormatError = true;
           }
         } else {
           buttonText = placeholderText;
         }
 
-        final bool effectivelyEnabled = isEnabled && !isLoading;
+        final bool effectivelyEnabled = isEnabled && !widget.isLoading; // 使用 widget.isLoading
 
-        // 根据状态选择颜色
         Color iconColor;
         Color labelColor;
         Color borderColor;
         FontWeight labelWeight = FontWeight.normal;
-        double borderWidth = _kPickerButtonInactiveBorderWidth;
+        double borderWidth = FilterSectionWidget._kPickerButtonInactiveBorderWidth; // 访问静态常量
 
         if (effectivelyEnabled) {
           if (isFormatError) {
@@ -148,18 +162,18 @@ class FilterSectionWidget extends StatelessWidget {
           } else if (hasSuccessfullyParsedValue) {
             iconColor = colorScheme.primary;
             labelColor = colorScheme.primary;
-            borderColor = colorScheme.primary; 
+            borderColor = colorScheme.primary;
             labelWeight = FontWeight.w500;
-            borderWidth = _kPickerButtonActiveBorderWidth;
-          } else { // Placeholder state
+            borderWidth = FilterSectionWidget._kPickerButtonActiveBorderWidth;
+          } else {
             iconColor = colorScheme.onSurfaceVariant;
             labelColor = colorScheme.onSurfaceVariant;
             borderColor = colorScheme.outline;
           }
-        } else { // Disabled state
-          iconColor = colorScheme.onSurface.withOpacity(0.38);
-          labelColor = colorScheme.onSurface.withOpacity(0.38);
-          borderColor = colorScheme.onSurface.withOpacity(0.12); 
+        } else {
+          iconColor = colorScheme.onSurface.withValues(alpha: 0.38);
+          labelColor = colorScheme.onSurface.withValues(alpha: 0.38);
+          borderColor = colorScheme.onSurface.withValues(alpha: 0.12);
         }
 
         return Row(
@@ -168,7 +182,7 @@ class FilterSectionWidget extends StatelessWidget {
               child: OutlinedButton.icon(
                 icon: Icon(
                   icon,
-                  size: _kPickerIconSize,
+                  size: FilterSectionWidget._kPickerIconSize,
                   color: iconColor,
                 ),
                 label: Text(
@@ -181,46 +195,107 @@ class FilterSectionWidget extends StatelessWidget {
                 ),
                 onPressed: effectivelyEnabled ? onPressed : null,
                 style: OutlinedButton.styleFrom(
-                  padding: _kPickerButtonPadding,
+                  padding: FilterSectionWidget._kPickerButtonPadding,
                   alignment: Alignment.centerLeft,
-                  // M3 禁用样式由 ThemeData 自动处理，但 OutlinedButton 的边框和文本颜色需要特别处理
-                  // side 和 foregroundColor 通常会基于 enabled 状态自动调整。
-                  // 如果需要更细致的控制，可以使用 .copyWith 和 WidgetStateProperty
                 ).copyWith(
                   side: WidgetStateProperty.resolveWith<BorderSide?>(
                     (Set<WidgetState> states) {
                       if (states.contains(WidgetState.disabled)) {
                         return BorderSide(
-                          color: colorScheme.onSurface.withOpacity(0.12), // M3 disabled outline
-                          width: _kPickerButtonInactiveBorderWidth,
+                          color: colorScheme.onSurface.withValues(alpha: 0.12),
+                          width: FilterSectionWidget._kPickerButtonInactiveBorderWidth,
                         );
                       }
-                      // 对于其他状态（hover, focused, pressed），使用之前计算的 borderColor
                       return BorderSide(
-                        color: borderColor, // 之前计算的 borderColor (active, error, or placeholder)
-                        width: borderWidth, // 之前计算的 borderWidth
+                        color: borderColor,
+                        width: borderWidth,
                       );
                     },
                   ),
                   foregroundColor: WidgetStateProperty.resolveWith<Color?>(
                     (Set<WidgetState> states) {
-                       if (states.contains(WidgetState.disabled)) {
-                        return labelColor; // 使用上面计算的禁用状态 labelColor
+                      if (states.contains(WidgetState.disabled)) {
+                        return labelColor;
                       }
-                      return labelColor; // 其他状态使用计算的 labelColor
-                    }
+                      return labelColor;
+                    },
                   ),
                   shape: WidgetStateProperty.all(
-                     RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(_kPickerButtonBorderRadius),
-                     )
-                  )
+                    RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(FilterSectionWidget._kPickerButtonBorderRadius),
+                    ),
+                  ),
                 ),
               ),
             ),
           ],
         );
       },
+    );
+  }
+
+  // buildDateTimeEntry 方法也移到 State 类内部
+  Widget _buildDateTimeEntry({
+    required BuildContext context, // context 来自 State
+    required TextEditingController controller,
+    required String dateLabel,
+    required String datePlaceholder,
+    required VoidCallback onPickDate,
+    required String timeLabel,
+    required String timePlaceholder,
+    required VoidCallback onPickTime,
+  }) {
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
+    final colorScheme = theme.colorScheme;
+    bool isTimeEnabled = controller.text.isNotEmpty;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              '$dateLabel: ',
+              style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant),
+            ),
+            Expanded(
+              child: _buildPickerButton( // 调用 State 内的 _buildPickerButton
+                context: context,
+                controller: controller,
+                placeholderText: datePlaceholder,
+                icon: Icons.calendar_today_outlined,
+                onPressed: onPickDate,
+                valueFormatter: (dt) => FilterSectionWidget._displayDateFormat.format(dt), // 访问静态成员
+                fullDateTimeFormat: widget.dateFormat, // 访问 widget.dateFormat
+                isEnabled: true,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: FilterSectionWidget._kDateTimeEntryVerticalSpacing),
+        Row(
+          children: [
+            Text(
+              '$timeLabel: ',
+              style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant),
+            ),
+            Expanded(
+              child: _buildPickerButton( // 调用 State 内的 _buildPickerButton
+                context: context,
+                controller: controller,
+                placeholderText: timePlaceholder,
+                icon: Icons.access_time_outlined,
+                onPressed: onPickTime,
+                valueFormatter: (dt) => FilterSectionWidget._displayTimeFormat.format(dt), // 访问静态成员
+                fullDateTimeFormat: widget.dateFormat, // 访问 widget.dateFormat
+                isEnabled: isTimeEnabled,
+              ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 
@@ -231,21 +306,19 @@ class FilterSectionWidget extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final mediaQuery = MediaQuery.of(context);
     final isSmallScreen = mediaQuery.size.width < 600;
-    const double pickerButtonMaxWidth = 280; // Max width for each picker button row
+    const double pickerButtonMaxWidth = 280;
     const double _kPickerButtonMaxWidthSmallScreen = pickerButtonMaxWidth * 1.5;
 
-
-    // Formatters for date and time parts (now using static members)
-    // final DateFormat displayDateFormat = DateFormat('yyyy-MM-dd'); // Removed
-    // final DateFormat displayTimeFormat = DateFormat('HH:mm'); // Removed
+    // 自定义模式激活条件：当 activeQuickRangeDuration 为 null 时
+    final bool isCustomModeActive = widget.activeQuickRangeDuration == null;
 
     Widget sensorSelectionSection = Padding(
-      padding: const EdgeInsets.only(bottom: _kSensorSectionBottomPadding),
+      padding: const EdgeInsets.only(bottom: FilterSectionWidget._kSensorSectionBottomPadding),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.only(left: 4.0, bottom: _kSensorChoiceChipSpacing),
+            padding: const EdgeInsets.only(left: 4.0, bottom: FilterSectionWidget._kSensorChoiceChipSpacing),
             child: Text(
               "选择传感器",
               style: textTheme.titleSmall?.copyWith(
@@ -254,17 +327,17 @@ class FilterSectionWidget extends StatelessWidget {
             ),
           ),
           Wrap(
-            spacing: _kSensorChoiceChipSpacing,
-            runSpacing: _kSensorChoiceChipSpacing,
+            spacing: FilterSectionWidget._kSensorChoiceChipSpacing,
+            runSpacing: FilterSectionWidget._kSensorChoiceChipSpacing,
             alignment: WrapAlignment.center,
-            children: availableSensors.map((sensor) {
-              final bool isSelected = selectedSensorIdentifier == sensor;
+            children: widget.availableSensors.map((sensor) { // 使用 widget.availableSensors
+              final bool isSelected = widget.selectedSensorIdentifier == sensor;
               return ChoiceChip(
                 label: Text(sensor),
                 selected: isSelected,
                 onSelected: (bool selected) {
                   if (selected) {
-                    onSensorSelected(sensor);
+                    widget.onSensorSelected(sensor);
                   }
                 },
                 selectedColor: colorScheme.primaryContainer,
@@ -275,9 +348,9 @@ class FilterSectionWidget extends StatelessWidget {
                     ? BorderSide.none
                     : BorderSide(color: colorScheme.outline), // 使用 M3 outline
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(_kSensorChoiceChipBorderRadius),
+                  borderRadius: BorderRadius.circular(FilterSectionWidget._kSensorChoiceChipBorderRadius),
                 ),
-                padding: _kSensorChoiceChipPadding,
+                padding: FilterSectionWidget._kSensorChoiceChipPadding,
                 showCheckmark: false,
                 elevation: isSelected ? 1 : 0,
                 pressElevation: 2,
@@ -288,103 +361,37 @@ class FilterSectionWidget extends StatelessWidget {
       ),
     );
     
-    // Helper to build a date/time entry (Date + Time buttons)
-    Widget buildDateTimeEntry({
-      required TextEditingController controller,
-      required String dateLabel,
-      required String datePlaceholder,
-      required VoidCallback onPickDate,
-      required String timeLabel,
-      required String timePlaceholder,
-      required VoidCallback onPickTime,
-    }) {
-      final theme = Theme.of(context);
-      final textTheme = theme.textTheme;
-      final colorScheme = theme.colorScheme;
-
-      // Time button is enabled only if the corresponding date controller has text
-      bool isTimeEnabled = controller.text.isNotEmpty;
-
-      return Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                '$dateLabel: ', 
-                style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant)
-              ),
-              Expanded(
-                child: _buildPickerButton(
-                  context: context,
-                  controller: controller,
-                  placeholderText: datePlaceholder,
-                  icon: Icons.calendar_today_outlined,
-                  onPressed: onPickDate,
-                  valueFormatter: (dt) => _displayDateFormat.format(dt),
-                  fullDateTimeFormat: dateFormat,
-                  isEnabled: true, 
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: _kDateTimeEntryVerticalSpacing),
-          Row(
-            children: [
-               Text(
-                '$timeLabel: ', 
-                style: textTheme.labelLarge?.copyWith(color: colorScheme.onSurfaceVariant)
-              ),
-              Expanded(
-                child: _buildPickerButton(
-                  context: context,
-                  controller: controller,
-                  placeholderText: timePlaceholder,
-                  icon: Icons.access_time_outlined,
-                  onPressed: onPickTime,
-                  valueFormatter: (dt) => _displayTimeFormat.format(dt),
-                  fullDateTimeFormat: dateFormat,
-                  isEnabled: isTimeEnabled, 
-                ),
-              ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    Widget dateRangePickersSection = Column(
+    // This is the content for custom date/time pickers and action buttons
+    Widget customRangeContent = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.only(top: _kDateRangePickerTitleTopPadding, bottom: _kDateRangePickerTitleBottomPadding),
-          child: Text('自定义范围', style: textTheme.titleSmall?.copyWith(color: colorScheme.onSurfaceVariant)),
-        ),
+        // No separate title here as it's part of the overall flow now
         if (isSmallScreen) ...[
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: _kPickerButtonMaxWidthSmallScreen),
-            child: buildDateTimeEntry(
-              controller: startDateController,
+            child: _buildDateTimeEntry( // 调用 State 内的 _buildDateTimeEntry
+              context: context,
+              controller: widget.startDateController,
               dateLabel: '起始日期',
               datePlaceholder: '选择日期',
-              onPickDate: onSelectStartDate,
+              onPickDate: widget.onSelectStartDate,
               timeLabel: '起始时间',
               timePlaceholder: '选择时间',
-              onPickTime: onSelectStartTime,
+              onPickTime: widget.onSelectStartTime,
             ),
           ),
-          const SizedBox(height: _kDateGroupVerticalSpacingSmallScreen),
+          const SizedBox(height: FilterSectionWidget._kDateGroupVerticalSpacingSmallScreen),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: _kPickerButtonMaxWidthSmallScreen),
-            child: buildDateTimeEntry(
-              controller: endDateController,
+            child: _buildDateTimeEntry( // 调用 State 内的 _buildDateTimeEntry
+              context: context,
+              controller: widget.endDateController,
               dateLabel: '结束日期',
               datePlaceholder: '选择日期',
-              onPickDate: onSelectEndDate,
+              onPickDate: widget.onSelectEndDate,
               timeLabel: '结束时间',
               timePlaceholder: '选择时间',
-              onPickTime: onSelectEndTime,
+              onPickTime: widget.onSelectEndTime,
             ),
           ),
         ] else ...[
@@ -395,31 +402,33 @@ class FilterSectionWidget extends StatelessWidget {
                 child: Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: pickerButtonMaxWidth),
-                    child: buildDateTimeEntry(
-                      controller: startDateController,
+                    child: _buildDateTimeEntry( // 调用 State 内的 _buildDateTimeEntry
+                      context: context,
+                      controller: widget.startDateController,
                       dateLabel: '起始日期',
                       datePlaceholder: '选择日期',
-                      onPickDate: onSelectStartDate,
+                      onPickDate: widget.onSelectStartDate,
                       timeLabel: '起始时间',
                       timePlaceholder: '选择时间',
-                      onPickTime: onSelectStartTime,
+                      onPickTime: widget.onSelectStartTime,
                     ),
                   ),
                 ),
               ),
-              const SizedBox(width: _kDateGroupHorizontalSpacingLargeScreen), 
+              const SizedBox(width: FilterSectionWidget._kDateGroupHorizontalSpacingLargeScreen),
               Expanded(
                 child: Center(
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: pickerButtonMaxWidth),
-                    child: buildDateTimeEntry(
-                      controller: endDateController,
+                    child: _buildDateTimeEntry( // 调用 State 内的 _buildDateTimeEntry
+                      context: context,
+                      controller: widget.endDateController,
                       dateLabel: '结束日期',
                       datePlaceholder: '选择日期',
-                      onPickDate: onSelectEndDate,
+                      onPickDate: widget.onSelectEndDate,
                       timeLabel: '结束时间',
                       timePlaceholder: '选择时间',
-                      onPickTime: onSelectEndTime,
+                      onPickTime: widget.onSelectEndTime,
                     ),
                   ),
                 ),
@@ -427,27 +436,27 @@ class FilterSectionWidget extends StatelessWidget {
             ],
           ),
         ],
-        const SizedBox(height: _kActionButtonsSectionSpacing), 
+        const SizedBox(height: FilterSectionWidget._kActionButtonsSectionSpacing),
         Row(
           mainAxisAlignment: isSmallScreen ? MainAxisAlignment.center : MainAxisAlignment.start,
           children: [
             TextButton.icon(
-              icon: const Icon(Icons.refresh_rounded, size: _kPickerIconSize),
+              icon: const Icon(Icons.refresh_rounded, size: FilterSectionWidget._kPickerIconSize),
               label: const Text('重置范围'),
-              onPressed: isLoading ? null : onResetDateRange,
+              onPressed: widget.isLoading ? null : widget.onResetDateRange,
               style: TextButton.styleFrom(
-                foregroundColor: colorScheme.primary, 
+                foregroundColor: colorScheme.primary,
                 padding: isSmallScreen ? const EdgeInsets.symmetric(horizontal: 16, vertical: 10) : null,
               ),
             ),
             if (!isSmallScreen) const Spacer(),
-            if (isSmallScreen) const SizedBox(width: _kActionButtonsSpacingSmallScreen),
+            if (isSmallScreen) const SizedBox(width: FilterSectionWidget._kActionButtonsSpacingSmallScreen),
             ElevatedButton.icon(
-              icon: isLoading
-                  ? SizedBox(width: _kPickerIconSize, height: _kPickerIconSize, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.onPrimary))
-                  : Icon(Icons.search_rounded, size: _kPickerIconSize),
+              icon: widget.isLoading
+                  ? SizedBox(width: FilterSectionWidget._kPickerIconSize, height: FilterSectionWidget._kPickerIconSize, child: CircularProgressIndicator(strokeWidth: 2, color: colorScheme.onPrimary))
+                  : Icon(Icons.search_rounded, size: FilterSectionWidget._kPickerIconSize),
               label: const Text('查询数据'),
-              onPressed: isLoading ? null : onLoadData,
+              onPressed: widget.isLoading ? null : widget.onLoadData,
               style: ElevatedButton.styleFrom(
                 backgroundColor: colorScheme.primary,
                 foregroundColor: colorScheme.onPrimary,
@@ -459,64 +468,95 @@ class FilterSectionWidget extends StatelessWidget {
       ],
     );
 
-    // --- 新增：快速选择时间范围按钮区域 ---
-    Widget quickRangeButtonsSection = Column(
+    // Renamed from quickRangeButtonsSection to selectTimeRangeSection
+    Widget selectTimeRangeSection = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: _kQuickRangeTitlePadding,
+          padding: FilterSectionWidget._kQuickRangeTitlePadding,
           child: Text(
-            '快速选择',
+            '选择时间范围',
             style: textTheme.titleSmall?.copyWith(color: colorScheme.onSurfaceVariant),
           ),
         ),
         Wrap(
-          spacing: _kQuickRangeButtonSpacing,
-          runSpacing: _kQuickRangeButtonSpacing,
-          alignment: WrapAlignment.start, // 水平方向居左对齐
-          children: _quickRanges.map((range) {
-            final bool isActive = activeQuickRangeDuration == range['duration'];
-            final rangeDuration = range['duration'] as Duration;
-            final rangeLabel = range['label'] as String;
-            final startOfDay = range['startOfDay'] as bool? ?? false;
+          spacing: FilterSectionWidget._kQuickRangeButtonSpacing,
+          runSpacing: FilterSectionWidget._kQuickRangeButtonSpacing,
+          alignment: WrapAlignment.start,
+          children: [
+            // 渲染包括 "自动范围" 在内的所有预设范围按钮
+            ...FilterSectionWidget._quickRanges.map((range) {
+              final rangeDuration = range['duration'] as Duration;
+              final rangeLabel = range['label'] as String;
+              final startOfDay = range['startOfDay'] as bool? ?? false; // 从 map 中获取
 
-            if (isActive) {
-              return FilledButton.tonal(
-                onPressed: isLoading ? null : () => onQuickRangeApplied(rangeDuration, startOfDay: startOfDay),
-                style: FilledButton.styleFrom(
-                  padding: _kQuickRangeButtonInternalPadding,
-                  textStyle: textTheme.labelLarge, // M3 tonal buttons use labelLarge
-                ),
-                child: Text(rangeLabel),
-              );
-            } else {
-              return OutlinedButton(
-                onPressed: isLoading ? null : () => onQuickRangeApplied(rangeDuration, startOfDay: startOfDay),
-                style: OutlinedButton.styleFrom(
-                  padding: _kQuickRangeButtonInternalPadding,
-                  textStyle: textTheme.labelLarge,
-                  side: BorderSide(color: colorScheme.outline),
-                  // foregroundColor: colorScheme.primary, // OutlinedButton 的文本颜色默认会适配
-                ),
-                child: Text(rangeLabel),
-              );
-            }
-          }).toList(),
+              // 按钮激活条件：activeQuickRangeDuration 与当前按钮的 duration 匹配
+              final bool isActive = widget.activeQuickRangeDuration == rangeDuration;
+
+              if (isActive) {
+                return FilledButton.tonal(
+                  // 如果已经是激活的自动范围，点击无效果或可以触发重新计算（如果需要）
+                  onPressed: widget.isLoading
+                      ? null
+                      : (rangeDuration == FilterSectionWidget.autoRangeDuration && isActive)
+                          ? () => widget.onQuickRangeApplied(rangeDuration, startOfDay: startOfDay) // 允许再次点击自动以刷新
+                          : () => widget.onQuickRangeApplied(rangeDuration, startOfDay: startOfDay),
+                  style: FilledButton.styleFrom(
+                    padding: FilterSectionWidget._kQuickRangeButtonInternalPadding,
+                    textStyle: textTheme.labelLarge,
+                  ),
+                  child: Text(rangeLabel),
+                );
+              } else {
+                return OutlinedButton(
+                  onPressed: widget.isLoading ? null : () => widget.onQuickRangeApplied(rangeDuration, startOfDay: startOfDay),
+                  style: OutlinedButton.styleFrom(
+                    padding: FilterSectionWidget._kQuickRangeButtonInternalPadding,
+                    textStyle: textTheme.labelLarge,
+                    side: BorderSide(color: colorScheme.outline),
+                  ),
+                  child: Text(rangeLabel),
+                );
+              }
+            }),
+            
+            // "自定义范围"按钮
+            isCustomModeActive // 如果当前是自定义模式，则此按钮激活
+                ? FilledButton.tonal(
+                    onPressed: widget.isLoading ? null : null, // 已激活，点击无操作
+                    style: FilledButton.styleFrom(
+                      padding: FilterSectionWidget._kQuickRangeButtonInternalPadding,
+                      textStyle: textTheme.labelLarge,
+                    ),
+                    child: const Text('自定义范围'),
+                  )
+                : OutlinedButton(
+                    // 点击后，传递 null 给 onQuickRangeApplied 以激活自定义模式
+                    onPressed: widget.isLoading ? null : () => widget.onQuickRangeApplied(null, startOfDay: false), 
+                    style: OutlinedButton.styleFrom(
+                      padding: FilterSectionWidget._kQuickRangeButtonInternalPadding,
+                      textStyle: textTheme.labelLarge,
+                      side: BorderSide(color: colorScheme.outline),
+                    ),
+                    child: const Text('自定义范围'),
+                  ),
+          ],
         ),
       ],
     );
-    // --- 结束：快速选择时间范围按钮区域 ---
 
-    // Main layout structure
     if (isSmallScreen) {
       return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch, 
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           sensorSelectionSection,
-          const SizedBox(height: _kSectionSpacingSmallScreen),
-          dateRangePickersSection,
-          const SizedBox(height: _kSectionSpacingSmallScreen), // 在自定义范围和快速选择之间添加间距
-          quickRangeButtonsSection, // 添加快速选择按钮区域
+          const SizedBox(height: FilterSectionWidget._kSectionSpacingSmallScreen),
+          selectTimeRangeSection,
+          // 仅在自定义模式激活时显示日期/时间选择器和操作按钮
+          if (isCustomModeActive) ...[
+            const SizedBox(height: FilterSectionWidget._kSectionSpacingSmallScreen),
+            customRangeContent,
+          ],
         ],
       );
     } else {
@@ -527,15 +567,18 @@ class FilterSectionWidget extends StatelessWidget {
             flex: 2,
             child: sensorSelectionSection,
           ),
-          const SizedBox(width: _kSectionSpacingLargeScreen), 
+          const SizedBox(width: FilterSectionWidget._kSectionSpacingLargeScreen),
           Expanded(
             flex: 3,
-            child: Column( // 将 dateRangePickersSection 和 quickRangeButtonsSection 包含在一个 Column 中
-              crossAxisAlignment: CrossAxisAlignment.stretch, // 让内部 Column 的子项宽度撑满
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                dateRangePickersSection,
-                const SizedBox(height: _kSectionSpacingLargeScreen), // 保持大屏幕下两个区域间的较大间距
-                quickRangeButtonsSection, // 添加快速选择按钮区域
+                selectTimeRangeSection,
+                // 仅在自定义模式激活时显示日期/时间选择器和操作按钮
+                if (isCustomModeActive) ...[
+                  const SizedBox(height: FilterSectionWidget._kSectionSpacingLargeScreen),
+                  customRangeContent,
+                ],
               ],
             ),
           ),

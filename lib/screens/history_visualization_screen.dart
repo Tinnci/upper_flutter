@@ -10,7 +10,7 @@ import 'dart:math' as math;
 
 // 新增导入拆分出来的组件
 import 'history_visualization/components/statistics_panel.dart';
-import 'history_visualization/components/filter_section_widget.dart'; // 新增
+import 'history_visualization/components/filter_section_widget.dart' show FilterSectionWidget; // 新增，使用别名避免枚举冲突
 import 'history_visualization/components/chart_display_mode_selector.dart' as cmd_selector; // 新增，使用别名避免枚举冲突
 import 'history_visualization/components/aggregation_interval_selector.dart'; // 新增
 
@@ -110,21 +110,32 @@ class _HistoryVisualizationScreenState
   void initState() {
     super.initState();
     _selectedSensorIdentifier = widget.sensorIdentifier ?? _availableSensors.first;
-    _setDefaultDateRange(triggerLoad: false);
+    
+    // 设置 "自动范围" 为默认激活状态
+    _activeQuickRangeDuration = FilterSectionWidget.autoRangeDuration;
+    
+    // 设置日期输入框为默认值（例如最近7天），但不立即触发加载
+    // 数据的初次加载将由 didChangeDependencies 中的 _loadHistoricalData 处理
+    _setDefaultDateRange(sevenDays: true, triggerLoad: false); 
   }
 
   void _setDefaultDateRange({bool sevenDays = true, bool triggerLoad = true}) {
     final now = DateTime.now();
     DateTime startDate;
     if (sevenDays) {
+      // 默认7天
       startDate = now.subtract(const Duration(days: 7));
     } else {
+      // "今天"
       startDate = DateTime(now.year, now.month, now.day);
     }
     _startDateController.text = _dateFormat.format(startDate);
     _endDateController.text = _dateFormat.format(now);
+    
     if (triggerLoad && mounted) {
-      _loadHistoricalData();
+      // 如果是从 _applyQuickRange 调用的，这里会重复加载，但 _loadHistoricalData 有防抖。
+      // 或者 _applyQuickRange 自己决定是否调用 _loadHistoricalData。
+      // 为保持一致性，让 _setDefaultDateRange 负责设置文本，_applyQuickRange 负责后续。
     }
   }
 
@@ -132,11 +143,17 @@ class _HistoryVisualizationScreenState
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (!_initialLoadDone) {
+      // 确保在 initState 中正确设置了 _selectedSensorIdentifier
+      // 如果 widget.sensorIdentifier 为 null，并且 _selectedSensorIdentifier 也因某种原因未在 initState 设置，
+      // 这里可以再次确保 _selectedSensorIdentifier 有一个有效值。
       if (widget.sensorIdentifier != null && widget.sensorIdentifier != _selectedSensorIdentifier) {
         _selectedSensorIdentifier = widget.sensorIdentifier;
-      } else if (widget.sensorIdentifier == null && _selectedSensorIdentifier == null) {
+      } else if (_selectedSensorIdentifier == null && _availableSensors.isNotEmpty) { // Fallback if still null
         _selectedSensorIdentifier = _availableSensors.first;
       }
+      
+      // _activeQuickRangeDuration 和日期控制器已经在 initState 中根据 "自动范围" 逻辑设置好了
+      // _loadHistoricalData 将使用这些预设值
       _loadHistoricalData();
       _initialLoadDone = true;
     }
@@ -176,10 +193,13 @@ class _HistoryVisualizationScreenState
       initialDate: initialDate,
       firstDate: DateTime(2000),
       lastDate: DateTime(2101),
-      builder: (context, child) { // Reusing the theme builder
+      builder: (context, child) {
+        final currentTheme = Theme.of(context);
         return Theme(
-          data: Theme.of(context).copyWith(
-            dialogBackgroundColor: Theme.of(context).dialogBackgroundColor,
+          data: currentTheme.copyWith(
+            dialogTheme: currentTheme.dialogTheme.copyWith( // Use existing dialogTheme and copyWith
+              backgroundColor: currentTheme.dialogTheme.backgroundColor, // Access via currentTheme.dialogTheme
+            ),
             // Add other theme properties for DatePicker if needed
           ),
           child: child!,
@@ -521,7 +541,9 @@ class _HistoryVisualizationScreenState
         final relativeChange = average != 0 ? change.abs() / average.abs() : 0;
         if (change > 0 && relativeChange > 0.05) {
           trend = "轻微上升";
-        } else if (change < 0 && relativeChange > 0.05) trend = "轻微下降";
+        } else if (change < 0 && relativeChange > 0.05) {
+          trend = "轻微下降";
+        }
     }
 
     List<FlSpot> sparklineSpots = [];
@@ -1672,13 +1694,9 @@ class _HistoryVisualizationScreenState
               },
               onLoadData: _loadHistoricalData,
               onResetDateRange: () {
-                 _setDefaultDateRange(); 
-                  setState(() {
-                    _activeQuickRangeDuration = null;
-                    _userSelectedAggregationInterval = null;
-                  });
+                 _applyQuickRange(FilterSectionWidget.autoRangeDuration, startOfDay: false);
               },
-              onQuickRangeApplied: (Duration duration, {bool startOfDay = false}) {
+              onQuickRangeApplied: (Duration? duration, {bool startOfDay = false}) {
                 _applyQuickRange(duration, startOfDay: startOfDay);
               },
             ),
@@ -1728,14 +1746,35 @@ class _HistoryVisualizationScreenState
     );
   }
 
-  void _applyQuickRange(Duration duration, {bool startOfDay = false}) {
+  void _applyQuickRange(Duration? duration, {bool startOfDay = false}) {
+    if (duration == FilterSectionWidget.autoRangeDuration) {
+      // 用户选择了 "自动范围"
+      _setDefaultDateRange(sevenDays: true, triggerLoad: false); // 设置为默认7天, 不立即触发加载
+      setState(() {
+        _activeQuickRangeDuration = FilterSectionWidget.autoRangeDuration;
+        _userSelectedAggregationInterval = null;
+      });
+      _loadHistoricalData(); // 在状态更新后加载数据
+      return;
+    }
+    
+    if (duration == null) {
+      // 用户选择了 "自定义范围"
+      setState(() {
+        _activeQuickRangeDuration = null;
+      });
+      // 不改变日期控制器，不加载数据，等待用户操作
+      return;
+    }
+
+    // 处理其他预设的快速范围
     final now = DateTime.now();
     DateTime endDate = now;
     DateTime startDate;
 
-    if (startOfDay && duration == const Duration(days: 1)) {
+    if (startOfDay && duration == const Duration(days: 1)) { // "今天"
       startDate = DateTime(now.year, now.month, now.day);
-    } else if (duration == const Duration(days: 0)) {
+    } else if (duration == const Duration(days: 0)) { // "昨天"
       final yesterday = now.subtract(const Duration(days: 1));
       startDate = DateTime(yesterday.year, yesterday.month, yesterday.day);
       endDate = DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
